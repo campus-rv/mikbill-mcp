@@ -1,0 +1,37 @@
+{
+  "tool": "mb_search_users",
+  "upstream_method": "getUsers",
+  "uri": "/json/users/searchflex",
+  "status": "captured",
+  "captured_from": "https://admin.mikbill.pro, Admin.store.users.Searchflex (store.load with uid filter)",
+  "captured_at": "2026-11-15",
+  "request": {
+    "encoding": "application/x-www-form-urlencoded",
+    "method": "POST",
+    "fields": [
+      {"name": "uid", "type": "integer", "required": false, "example": 1, "note": "Filter by subscriber uid. README documents this field."}
+    ],
+    "paging": "none sent by the UI (proxy pageParam, startParam, limitParam all disabled)",
+    "unfiltered_call": "not tested; the README calls it heavy"
+  },
+  "response": {
+    "envelope": {"success": "boolean", "totalCount": "integer", "data": "array", "error": "integer"},
+    "record_fields": {
+      "uid": "string", "useruid": "number", "state": "string", "user": "string", "fio": "string", "gid": "string",
+      "deposit": "number", "credit": "number", "phone": "string", "prim": "string", "framed_ip": "string",
+      "blocked": "string", "local_ip": "string", "local_mac": "string", "real_ip": "string", "mob_tel": "string",
+      "sms_tel": "string", "app": "string", "fixed_cost": "string", "swid": "string", "switchport": "string",
+      "dogovor": "string", "numdogovor": "string", "house": "string", "lane": "string", "settlementname": "string",
+      "address": "string", "phones": "string", "status": "string", "online": "number", "switchip": "string",
+      "swtypename": "string", "swichname": "string", "switchmac": "string", "swtypeid": "string", "days_left": "number",
+      "ext_date_fiz_contract_conclusion": "string", "ext_discount_device": "string", "ext_discount_device_fixed": "string",
+      "ext_discount_extended": "string", "ext_discount_global_fixed": "string", "ext_discount_packet": "string",
+      "ext_discount_payed": "string", "ext_discount_subs": "string", "packet": "string", "shaper_prio": "string",
+      "shaper_in": "number", "shaper_out": "number", "state_name": "string", "statustranslate": "string"
+    }
+  },
+  "notes": [
+    "Record data contains personal data (name, phone, address). The MCP must apply a field allowlist or redaction policy before returning results.",
+    "The record field `user` is the login name."
+  ]
+}

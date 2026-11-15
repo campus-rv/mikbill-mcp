@@ -1,0 +1,21 @@
+{
+  "tool": "mb_check_session",
+  "upstream_method": "checkLoggedIn",
+  "uri": "/json/users/getcountfl",
+  "status": "captured",
+  "captured_from": "https://admin.mikbill.pro, admin UI start-up requests (Admin.store.users.getcountfl)",
+  "captured_at": "2026-11-15",
+  "request": {"encoding": "application/x-www-form-urlencoded", "method": "POST", "fields": []},
+  "response": {
+    "envelope": {"success": "boolean", "data": "array", "error": "integer (0 on success)"},
+    "record_fields": {"countonline": "number", "counttarif": "number", "countusers": "number", "countdolgniki": "number", "countcredit": "number", "countblockinet": "number", "countblocklocal": "number", "countblockall": "number", "sysload": "string", "id": "string"}
+  },
+  "auth": {
+    "session_cookie": "required",
+    "unauthenticated_response": "HTTP 200 with {\"success\": false, \"error\": 1403, \"errortext\": \"UnAuth\"}"
+  },
+  "notes": [
+    "Upstream sendRequest only checks HTTP 200. The success field must be checked by the MCP client, because unauthenticated calls return HTTP 200.",
+    "The JWT header was not tested. The cookie session alone is sufficient for the UI requests."
+  ]
+}

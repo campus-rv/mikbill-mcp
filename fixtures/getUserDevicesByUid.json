@@ -1,0 +1,18 @@
+{
+  "tool": "mb_get_user_devices",
+  "upstream_method": "getUserDevicesByUid",
+  "uri": "/json/users/getuserdevicesbyuid",
+  "status": "partial",
+  "captured_from": "https://admin.mikbill.pro, Admin.store.users.getuserdevicesbyuid",
+  "captured_at": "2026-11-15",
+  "request": {
+    "encoding": "application/x-www-form-urlencoded",
+    "method": "POST",
+    "fields": [{"name": "uid", "type": "integer", "required": true, "example": 1}]
+  },
+  "response": {
+    "envelope": {"success": "boolean"},
+    "record_fields": "not captured: uid 1 has no devices in the demo"
+  },
+  "notes": ["Needs a demo subscriber with at least one device to capture record fields."]
+}

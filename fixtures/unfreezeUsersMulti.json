@@ -1,0 +1,18 @@
+{
+  "tool": "mb_bulk_unfreeze_users",
+  "upstream_method": null,
+  "uri": "/json/users/unfreezeusersmulti",
+  "status": "source_confirmed",
+  "captured_from": "admin UI bundle: Confirm window ('unfreezing'), not submitted",
+  "captured_at": "2026-11-15",
+  "request": {
+    "encoding": "application/x-www-form-urlencoded",
+    "method": "POST",
+    "fields": [
+      {"name": "set_users_list", "type": "string", "required": true, "example": "1,2,3", "note": "Comma-joined useruid values."}
+    ]
+  },
+  "response": {"envelope": {"success": "boolean"}},
+  "scope_proposal": "account_state (freeze-related)",
+  "notes": ["Pairs with the single-user freeze endpoint /json/users/dofreezeuserfl (upstream setFreezeUser)."]
+}

@@ -1,0 +1,21 @@
+{
+  "tool": "mb_list_dev_types",
+  "upstream_method": "getDevTypesList",
+  "uri": "/json/users/getdevtypesfulllist",
+  "status": "captured",
+  "captured_from": "https://admin.mikbill.pro, Admin.store.users.getdevtypesfulllist",
+  "captured_at": "2026-11-15",
+  "request": {"encoding": "application/x-www-form-urlencoded", "method": "POST", "fields": []},
+  "response": {
+    "envelope": {"success": "boolean", "data": "array"},
+    "record_fields": {
+      "devtypeid": "number", "devtypename": "string", "dev_alias": "string", "dev_ip": "string", "dev_mac": "number",
+      "device_sn": "number", "dev_sectorid": "string", "service_portal": "string", "portal": "string",
+      "portal_login": "number", "portal_password": "number", "default_cost": "number", "default_rent": "number",
+      "default_owner": "number", "deny_to_change_owner_settings": "number", "card_id": "number", "module_id": "number",
+      "description": "string", "installments_price": "number", "installments_count": "number", "type": "number",
+      "license_count": "string", "code_activation": "string"
+    }
+  },
+  "notes": ["Demo returned 20 records."]
+}

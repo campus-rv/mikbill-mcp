@@ -1,0 +1,77 @@
+{
+  "captured_at": "2026-11-15",
+  "capture_target": "https://admin.mikbill.pro (public demo)",
+  "rules": {
+    "reads": "Read calls on the demo (store loads from the admin UI or direct POST probes).",
+    "writes": "Executed on the demo with the user's explicit approval (2026-11-15). Test records are named MCPTEST_* and most were cleaned up. Records that could not be removed are listed under cleanup_leftovers."
+  },
+  "captured": [
+    "mb_check_session", "mb_count_users", "mb_search_users", "mb_get_user", "mb_get_user_payment_history",
+    "mb_get_user_short_history", "mb_get_user_canvas_stat", "mb_list_dev_types", "mb_list_settlements",
+    "mb_list_neighborhoods", "mb_list_lanes", "mb_list_houses", "mb_list_sectors", "mb_list_switches",
+    "mb_list_switch_types", "mb_list_packets", "mb_list_user_groups", "mb_get_system_options"
+  ],
+  "partial": ["mb_get_user_devices (no records for the demo subscriber to read fields from)"],
+  "write_verified_in_writes_verified_json": {
+    "file": "fixtures/writes_verified.json",
+    "count": 46,
+    "tools": [
+      "mb_create_user", "mb_update_user", "mb_kick_user", "mb_create_payment", "mb_change_tariff",
+      "mb_add_packet", "mb_edit_packet", "mb_delete_packet", "mb_freeze_user", "mb_bulk_enable_users",
+      "mb_bulk_disable_users", "mb_bulk_delete_users", "mb_bulk_unfreeze_users", "mb_bulk_enable_internet",
+      "mb_bulk_remove_credit", "mb_bulk_issue_credit", "mb_bulk_payment", "mb_remove_credit_single",
+      "mb_delete_user", "mb_create_sticky_note", "mb_delete_sticky_note", "mb_add_user_device", "mb_add_dev_type",
+      "mb_delete_dev_type", "mb_create_user_group", "mb_update_user_group", "mb_add_settlement", "mb_edit_settlement",
+      "mb_delete_settlement", "mb_add_neighborhood", "mb_edit_neighborhood", "mb_delete_neighborhood", "mb_add_lane",
+      "mb_edit_lane", "mb_delete_lane", "mb_add_house", "mb_edit_house", "mb_add_sector", "mb_edit_sector",
+      "mb_delete_sector", "mb_add_switch_type", "mb_edit_switch_type", "mb_delete_switch_type", "mb_add_switch",
+      "mb_edit_switch", "mb_delete_switch"
+    ]
+  },
+  "blocked": {
+    "mb_enable_flex_tariff": "MSG_ERROR_ABONENT_DUPLICATE_LOGIN, cause not identified",
+    "mb_set_personal_service": "no demo service has a service portal configured",
+    "mb_delete_user_group": "group in use by staff, cause not identified",
+    "mb_delete_house": "error 8, house still referenced by soft-deleted users"
+  },
+  "denied_by_settings": {
+    "mb_delete_user_full": "/json/users/delfulluserflex returns 'Denied by settings' on the demo"
+  },
+  "effects_discovered": [
+    "deluserflex and deleteusersmulti are SOFT deletes: state 4, deletedtable 1. The account remains in the database.",
+    "Upstream addSwitch and addSwitchType work when called with params. The upstream wrapper's no-param calls were the problem."
+  ],
+  "cleanup_leftovers": [
+    "Soft-deleted subscribers: uids 854, 855, 857, 858 (login mcptest1, mcptest2, mcptest4, mcptest5). uid 856 (mcptest3) is also soft-deleted.",
+    "House MCPTEST_H1b (houseid 90). Cannot be deleted while soft-deleted users reference it.",
+    "User group MCPTEST_G_b (usersgroupid 5). Delete blocked: 'in use by staff'.",
+    "Sticky notes and device types were removed. Device on uid 854 was not removed (its owner is soft-deleted)."
+  ],
+  "discovered_outside_upstream_wrapper": {
+    "note": "Endpoints present in the demo UI bundle that the upstream PHP class does not wrap. Each needs a scope decision before exposure.",
+    "user_delete": ["/json/users/deluserflex (soft delete, verified)", "/json/users/delfulluserflex (denied on demo)"],
+    "bulk_user_actions": [
+      "/json/users/enableusersmulti", "/json/users/disableusersmulti", "/json/users/deleteusersmulti",
+      "/json/users/unfreezeusersmulti", "/json/users/enableinternetmulti", "/json/users/creditnullmulti",
+      "/json/users/creditmulti", "/json/users/paymentdomulti"
+    ],
+    "bulk_pattern": "POST with set_users_list=<uid,uid,...>. Forms also send their own fields (credit, deposit, prim2, bughtypeid).",
+    "other_not_wrapped": [
+      "/json/users/usevaucherfl", "/json/users/otkluserflex", "/json/users/deluserotklflex",
+      "/json/users/unsetpersonalserviceuser", "/json/users/creditnullfl", "/json/users/deletedevtype",
+      "/json/tarif/delchecktarifflex", "/json/tarif/deltarifflex", "/json/options/deleteusersgroup",
+      "/json/options/deleteneighborhood", "/json/options/dellaneflex", "/json/options/sectordelflex",
+      "/json/options/deletesettlement", "/json/options/checkdeletesettlement", "/json/options/delswitchflex",
+      "/json/options/delswitchtypeflex", "/extjs/users/deletestickynotesuser", "/extjs/users/createstickynotesuser"
+    ],
+    "console": ["/extjs/options/consolecommands"],
+    "other_destructive": ["/json/options/delippoolsflex", "/json/options/nasserverdelflex", "/json/options/delrealipflex"]
+  },
+  "source_hint_file": "fixtures/_source_hints.json (superseded for the 50 verified tools above; still useful for the rest)",
+  "fixture_files_with_status": {
+    "source_derived_now_verified": ["editSettlement.json", "editNeighborhood.json", "editLane.json", "editHouse.json", "kickUser.json"],
+    "source_confirmed_bulk_now_verified": ["enableUsersMulti.json", "disableUsersMulti.json", "deleteUsersMulti.json", "unfreezeUsersMulti.json", "enableInternetMulti.json", "creditNullMulti.json"],
+    "source_hint_now_verified": ["creditMulti.json", "paymentDoMulti.json", "delUserFlex.json", "delFullUserFlex.json"],
+    "note": "These per-method files were written before verification. Their status fields are stale. writes_verified.json is authoritative."
+  }
+}

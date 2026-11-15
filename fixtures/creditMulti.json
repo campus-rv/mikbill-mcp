@@ -1,0 +1,19 @@
+{
+  "tool": "mb_bulk_issue_credit",
+  "upstream_method": null,
+  "uri": "/json/users/creditmulti",
+  "status": "source_hint",
+  "captured_from": "admin UI bundle: form 'Changecredit' (elformuserchangecredit), not submitted",
+  "captured_at": "2026-11-15",
+  "request": {
+    "encoding": "application/x-www-form-urlencoded",
+    "method": "POST",
+    "fields": [
+      {"name": "set_users_list", "type": "string", "required": true, "note": "Set by the form's onSave from the grid selection (same pattern as the confirm windows)."},
+      {"name": "(credit amount field)", "type": "number", "required": true, "note": "Field name not extracted. The form labels it as a sum. Confirm by opening the form."}
+    ]
+  },
+  "response": {"envelope": {"success": "boolean"}},
+  "scope_proposal": "finance (changes billing)",
+  "notes": ["Form-driven. Field names must be confirmed by opening the form. Not submitted."]
+}

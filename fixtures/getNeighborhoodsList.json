@@ -1,0 +1,14 @@
+{
+  "tool": "mb_list_neighborhoods",
+  "upstream_method": "getNeighborhoodsList",
+  "uri": "/json/users/neighborhoodslist",
+  "status": "captured",
+  "captured_from": "https://admin.mikbill.pro, Admin.store.users.neighborhoodslist",
+  "captured_at": "2026-11-15",
+  "request": {"encoding": "application/x-www-form-urlencoded", "method": "POST", "fields": []},
+  "response": {
+    "envelope": {"success": "boolean", "data": "array"},
+    "record_fields": {"neighborhoodid": "number", "neighborhoodname": "string", "settlementid": "number", "settlementname": "string", "lanes": "object"}
+  },
+  "notes": ["Demo returned 12 records."]
+}

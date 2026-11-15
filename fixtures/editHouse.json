@@ -1,0 +1,24 @@
+{
+  "tool": "mb_edit_house",
+  "upstream_method": "editHouse",
+  "uri": "/json/options/edithouselaneflex",
+  "status": "source_derived",
+  "captured_from": "admin UI bundle (params literal), not submitted",
+  "captured_at": "2026-11-15",
+  "request": {
+    "encoding": "application/x-www-form-urlencoded",
+    "method": "POST",
+    "fields": [
+      {"name": "houseid", "type": "integer", "required": true},
+      {"name": "laneid", "type": "integer", "required": true},
+      {"name": "neighborhoodid", "type": "integer", "required": true},
+      {"name": "house", "type": "string", "required": true},
+      {"name": "porches", "type": "integer", "required": false},
+      {"name": "floors", "type": "integer", "required": false},
+      {"name": "postal_index", "type": "string", "required": false, "note": "Seen in a second UI call site"},
+      {"name": "app_count_id", "type": "string", "required": false, "note": "Seen in a second UI call site"}
+    ]
+  },
+  "response": {"envelope": {"success": "boolean"}},
+  "notes": ["Two UI call sites send different field sets. Confirm the required set during a real submit."]
+}

@@ -1,0 +1,51 @@
+{
+  "tool": "mb_get_user",
+  "upstream_method": "getUser",
+  "uri": "/json/users/getuserdatambp",
+  "status": "captured",
+  "captured_from": "https://admin.mikbill.pro, client card form load (params: {uid})",
+  "captured_at": "2026-11-15",
+  "request": {
+    "encoding": "application/x-www-form-urlencoded",
+    "method": "POST",
+    "fields": [
+      {"name": "uid", "type": "integer", "required": true, "example": 1}
+    ]
+  },
+  "response": {
+    "envelope": {"success": "boolean", "totalCount": "integer", "data": "object"},
+    "data_fields": [
+      "activated", "add_date", "address", "app", "blocked", "callback_number", "cena_freeze", "cena_sutok_freeze",
+      "cena_unfreeze", "count_free_freeze", "count_free_freeze_use", "countdays", "create_mail", "credit",
+      "credit_active_cena", "credit_procent", "credit_procent_active_cena", "credit_stop", "credit_unlimited",
+      "credit_vremen", "credit_vremen_procent", "crypt_method", "current_day", "current_rating", "custom_packet_price",
+      "custom_speed_in", "custom_speed_out", "date_abonka", "date_birth", "date_birth_do", "date_itog", "days_left",
+      "deletedtable", "deposit", "devices", "do_credit_procent_vremen", "do_perevod_na_tarif", "do_real_ip", "dogovor",
+      "dontshowspeed", "email", "expired", "expired_display", "fio", "fixed_cost", "floor", "forpost_cameras",
+      "forpost_userid", "framed_ip", "framed_mask", "framedipaddress", "freeze_do_ever_tarif",
+      "freeze_do_return_abonolata", "frezetable", "gender", "gid", "gidd", "house", "houseblockid", "houseblockname",
+      "houseid", "housingid", "housingname", "inn", "internet_reason", "ipv6address_id", "ipv6address_value", "labels",
+      "lane", "laneid", "languarddisable", "last_connection", "link_to_ip_mac", "local_ip", "local_mac", "local_mask",
+      "mac_reg", "min_sutok_freeze", "mob_tel", "neighborhoodid", "neighborhoodname", "numdogovor", "old_address",
+      "online", "optical_level_rx", "optical_level_tx", "otkluchentable", "passportgdevidan", "passportpropiska",
+      "passportserie", "passportvoenkomat", "password", "phone", "phones", "points", "pon_central_closure_txt",
+      "pon_connection_box_txt", "porch", "portname", "postal_index", "prim", "rating", "real_ip", "real_ip_buy_cena",
+      "real_ip_disable_cena", "real_ipfree", "real_price", "real_price_tarif", "router_add_date", "router_login",
+      "router_model", "router_pass", "router_port", "router_serial", "router_ssid", "router_use_dual",
+      "router_we_saled", "router_wep_pass", "sector", "sectorid", "services", "settlementid", "settlementname",
+      "shapers_day_night_active", "sms_tel", "speed_burst", "speed_burst_display", "speed_mbit_on", "speed_rate",
+      "speed_rate_display", "start_credit_date", "start_credit_procent_date", "state", "staturl", "status",
+      "stop_credit_date", "stop_credit_procent_date", "swid", "switchname", "switchport", "tarif", "tarif_perevod_vniz",
+      "tarif_perevod_vverh", "total_money", "total_time", "total_traffic", "us_uid", "use_cards", "use_router", "user",
+      "user_installed", "usersgroupid", "useruid", "ext_connection_tpl_typeid", "ext_date_fiz_contract_conclusion",
+      "ext_discount_device", "ext_discount_device_fixed", "ext_discount_extended", "ext_discount_global_fixed",
+      "ext_discount_packet", "ext_discount_payed", "ext_discount_subs", "ext_doc_number", "ext_doc_type",
+      "ext_doc_unit_id", "ext_gender", "ext_legal_person", "ext_passport_date", "ext_tovarishestv", "ext_user_labels"
+    ]
+  },
+  "auth": {"session_cookie": "required"},
+  "notes": [
+    "SENSITIVE: the response includes `password`, `router_pass`, `router_wep_pass` and personal identifiers (passport, INN, dates of birth). Redact these fields in MCP output by default. Add them to the logging redaction list.",
+    "The field list was taken from the first 200 characters of the response's data object and the full key list. It is complete at the time of capture."
+  ]
+}

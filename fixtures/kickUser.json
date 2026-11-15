@@ -1,0 +1,15 @@
+{
+  "tool": "mb_kick_user",
+  "upstream_method": "userKickOnline",
+  "uri": "/json/users/userkickfl",
+  "status": "source_derived",
+  "captured_from": "admin UI bundle (params {uid}), not submitted",
+  "captured_at": "2026-11-15",
+  "request": {
+    "encoding": "application/x-www-form-urlencoded",
+    "method": "POST",
+    "fields": [{"name": "uid", "type": "integer", "required": true}]
+  },
+  "response": {"envelope": {"success": "boolean"}},
+  "notes": ["Disconnects the subscriber's active session. Not submitted during capture."]
+}

@@ -1,0 +1,18 @@
+{
+  "tool": "mb_list_switches",
+  "upstream_method": "getSwitchList",
+  "uri": "/json/users/switchlistflex",
+  "status": "captured",
+  "captured_from": "https://admin.mikbill.pro, Admin.store.users.switchlistalldefault",
+  "captured_at": "2026-11-15",
+  "request": {"encoding": "application/x-www-form-urlencoded", "method": "POST", "fields": []},
+  "response": {
+    "envelope": {"success": "boolean", "data": "array"},
+    "record_fields": {
+      "swtypename": "string", "swid": "string", "qnq": "string", "mgmt_vlan": "string", "user_vlan": "string",
+      "nameswitch": "string", "ip": "string", "firmvarever": "string", "swtypeid": "string", "parent_swid": "string",
+      "aggregation_device": "string", "mac": "string", "address": "string", "id": "string"
+    }
+  },
+  "notes": ["Demo returned 8 records."]
+}

@@ -1,0 +1,14 @@
+{
+  "tool": "mb_list_lanes",
+  "upstream_method": "getLanesList",
+  "uri": "/json/users/getlanesneighborhoods",
+  "status": "captured",
+  "captured_from": "https://admin.mikbill.pro, Admin.store.users.streetslist",
+  "captured_at": "2026-11-15",
+  "request": {"encoding": "application/x-www-form-urlencoded", "method": "POST", "fields": []},
+  "response": {
+    "envelope": {"success": "boolean", "data": "array"},
+    "record_fields": {"laneid": "number", "lane": "string", "neighborhoodid": "string", "settlementid": "number", "settlementname": "string"}
+  },
+  "notes": ["Demo returned 35 records. Upstream calls these lanes; the UI calls them streets (streetslist)."]
+}

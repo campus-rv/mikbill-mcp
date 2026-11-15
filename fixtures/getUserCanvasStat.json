@@ -1,0 +1,21 @@
+{
+  "tool": "mb_get_user_canvas_stat",
+  "upstream_method": "getUserCanvasStat",
+  "uri": "/json/users/getusercanvasstat",
+  "status": "captured",
+  "captured_from": "https://admin.mikbill.pro, direct POST probe (not used by the UI bundle's string list)",
+  "captured_at": "2026-11-15",
+  "request": {
+    "encoding": "application/x-www-form-urlencoded",
+    "method": "POST",
+    "fields": [{"name": "uid", "type": "integer", "required": true, "example": 1}]
+  },
+  "response": {
+    "envelope": {"success": "boolean", "data": "array", "error": "integer (present on some responses)"},
+    "record_fields": "same sections as mb_get_user_short_history (postauth, stattraf, statdhcp, statusluga, statpay, switchlog, tickets, logs, statperevod, statpendingchange, sms)"
+  },
+  "notes": [
+    "Upstream marks this as 'Old'. The UI uses /extjs/users/usershorthistory for the same sections. Consider dropping this tool in favor of mb_get_user_short_history.",
+    "SENSITIVE: contains plaintext subscriber `pass` in postauth rows. Redact by default."
+  ]
+}

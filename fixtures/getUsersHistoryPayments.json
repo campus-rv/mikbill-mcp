@@ -1,0 +1,26 @@
+{
+  "tool": "mb_get_user_payment_history",
+  "upstream_method": "getUsersHistoryPayments",
+  "uri": "/json/users/statpaymfl",
+  "status": "captured",
+  "captured_from": "https://admin.mikbill.pro, Admin.store.users.statpaymfl (store.load with uid and dates)",
+  "captured_at": "2026-11-15",
+  "request": {
+    "encoding": "application/x-www-form-urlencoded",
+    "method": "POST",
+    "fields": [
+      {"name": "uid", "type": "integer", "required": true, "example": 1},
+      {"name": "from_date", "type": "string (YYYY-MM-DD)", "required": false, "example": "2024-01-01"},
+      {"name": "to_date", "type": "string (YYYY-MM-DD)", "required": false, "example": "2026-12-31"}
+    ],
+    "paging": "none sent by the UI"
+  },
+  "response": {
+    "envelope": {"success": "boolean", "totalCount": "integer (present on some responses)", "data": "array", "error": "integer"},
+    "record_fields": {
+      "IdRowPayView": "number", "type": "string", "date": "string (YYYY-MM-DD HH:MM:SS)", "bughtypeid": "string",
+      "comment": "string", "who": "string", "before_billing": "number", "summa": "number"
+    }
+  },
+  "notes": ["Matches the README example (uid, from_date, to_date). Verified against the demo."]
+}

@@ -1,0 +1,28 @@
+{
+  "tool": "mb_list_packets",
+  "upstream_method": "getPacketsList",
+  "uri": "/json/tarif/gettarifsfl",
+  "status": "captured",
+  "captured_from": "https://admin.mikbill.pro, Admin.store.tarif.gettarifsfl",
+  "captured_at": "2026-11-15",
+  "request": {
+    "encoding": "application/x-www-form-urlencoded",
+    "method": "POST",
+    "fields": [
+      {"name": "page", "type": "integer", "required": false, "example": 1, "note": "Sent by the UI store"},
+      {"name": "start", "type": "integer", "required": false, "example": 0, "note": "Sent by the UI store"},
+      {"name": "limit", "type": "integer", "required": false, "example": 25, "note": "Sent by the UI store"}
+    ],
+    "paging": "UI sends page/start/limit. Whether the server honors them is not verified."
+  },
+  "response": {
+    "envelope": {"success": "boolean", "data": "array"},
+    "record_fields": {
+      "gid": "number", "packet": "string", "alias": "string", "count": "number", "toss": "string", "tos": "string",
+      "floor_traffic2": "string", "floor_traffic": "string", "fixed_cost": "number", "real_ip": "string",
+      "real_price": "number", "speed_rate": "number", "speed_burst": "number", "shaper_prio": "number",
+      "numgroup": "number", "num": "number", "usersgroupid": "string", "packet_original": "string", "pair": "number"
+    }
+  },
+  "notes": ["Demo returned 56 records. Read tool, but packets carry prices. Fine for read scope."]
+}

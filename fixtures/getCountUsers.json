@@ -1,0 +1,14 @@
+{
+  "tool": "mb_count_users",
+  "upstream_method": "getCountUsers",
+  "uri": "/json/users/getcountfl",
+  "status": "captured",
+  "captured_from": "https://admin.mikbill.pro, same endpoint as checkLoggedIn",
+  "captured_at": "2026-11-15",
+  "request": {"encoding": "application/x-www-form-urlencoded", "method": "POST", "fields": []},
+  "response": {
+    "envelope": {"success": "boolean", "data": "array", "error": "integer"},
+    "record_fields": {"countusers": "number", "countonline": "number", "counttarif": "number", "countblockall": "number"}
+  },
+  "notes": ["Shares the URI with mb_check_session. Field set is the same as checkLoggedIn; see checkLoggedIn.json."]
+}

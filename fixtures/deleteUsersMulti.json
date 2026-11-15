@@ -1,0 +1,21 @@
+{
+  "tool": "mb_bulk_delete_users",
+  "upstream_method": null,
+  "uri": "/json/users/deleteusersmulti",
+  "status": "source_confirmed",
+  "captured_from": "admin UI bundle: Confirm window (title 'remove account'), not submitted",
+  "captured_at": "2026-11-15",
+  "request": {
+    "encoding": "application/x-www-form-urlencoded",
+    "method": "POST",
+    "fields": [
+      {"name": "set_users_list", "type": "string", "required": true, "example": "1,2,3", "note": "Comma-joined useruid values."}
+    ]
+  },
+  "response": {"envelope": {"success": "boolean"}},
+  "scope_proposal": "account_state, gated, dry-run required. Irreversible in the UI sense: the confirm window does not show a count.",
+  "notes": [
+    "Destructive. The UI deletes accounts with no second check beyond the confirm window. The MCP must show the full uid list and count in the dry-run preview.",
+    "Field `message` appears in the UI source; its role (server message or request field) is unknown."
+  ]
+}

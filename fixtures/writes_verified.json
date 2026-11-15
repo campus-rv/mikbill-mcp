@@ -1,0 +1,271 @@
+{
+  "captured_at": "2026-11-15",
+  "target": "https://admin.mikbill.pro (public demo). All writes were executed on the demo with explicit user approval. Test records are named MCPTEST_*.",
+  "encoding": "application/x-www-form-urlencoded, POST. Responses are JSON with success (bool) and error (int or string). Several endpoints return HTTP 200 with success:false for logical errors, so success must be checked.",
+  "verified": [
+    {
+      "tool": "mb_create_user", "uri": "/extjs/users/createabonent", "upstream": "createAbonent", "scope": "write",
+      "request": ["user", "password", "fio", "phone", "email", "prim", "gid", "use_installments", "sectorid", "settlementid", "neighborhoodid", "laneid", "lane_name", "lane_create", "houseid", "house_name", "house_create", "app"],
+      "required_in_practice": ["user", "password", "fio", "gid", "sectorid", "settlementid", "neighborhoodid", "laneid", "houseid", "app"],
+      "response": "{success: true, data: {user, useruid}, error: \"0\"}",
+      "errors": ["Sector without free IPs: 'В выбраном сегменте нету свободных IP адресов' (error 1)", "Sector with no DHCP range or missing address config: generic 1202"],
+      "side_effects": "Creates a subscriber. Creates the device-level records the form implies."
+    },
+    {
+      "tool": "mb_update_user", "uri": "/extjs/users/updateuser", "upstream": "updateUser", "scope": "write",
+      "request": ["useruid", "fio", "prim", "email", "phone", "blocked", "user", "gid", "usersgroupid"],
+      "response": "{success: true, error: 0}"
+    },
+    {
+      "tool": "mb_kick_user", "uri": "/json/users/userkickfl", "upstream": "userKickOnline", "scope": "write",
+      "request": ["uid"],
+      "response": "{success: true, data: [{username}], error: 0}"
+    },
+    {
+      "tool": "mb_create_payment", "uri": "/json/users/paymentdoflex", "upstream": "payment", "scope": "finance",
+      "request": ["uid", "bughtypeid", "deposit", "prim2"],
+      "bughtypeid_values": "From /json/users/getpaytypeakciyalistflex (gift types, e.g. 17 'Акция', 16 'ПОДАРОК!') and /json/users/getpaytypepodkllistflex.",
+      "response": "{success: true, ok: 1, error: 0}",
+      "side_effects": "Changes the account balance. Real money in production."
+    },
+    {
+      "tool": "mb_change_tariff", "uri": "/json/users/dochangetarifflex", "upstream": "doChangeTarifFlex", "scope": "finance",
+      "request": ["uid", "gid"],
+      "response": "{success: true, error: 0, data: {deposit}}",
+      "notes": "Tariff id is gid. The returned deposit changed. Verified effect on the account was limited: gid read back as 0 afterwards, so verify before relying on it."
+    },
+    {
+      "tool": "mb_enable_flex_tariff", "uri": "/json/users/vkluserflex", "upstream": "vklUserFlex", "scope": "finance",
+      "request": ["uid", "gid"],
+      "status": "BLOCKED",
+      "errors": ["MSG_ERROR_ABONENT_DUPLICATE_LOGIN (error 2), with the VKL tariff list gids 49, 41, 40, 42. Failed for two users."],
+      "notes": "Cause not identified. The VKL flow may create a second account with the user's login. Needs investigation in the UI."
+    },
+    {
+      "tool": "mb_add_packet", "uri": "/json/tarif/addtarifflex", "upstream": "addPacket", "scope": "finance",
+      "request": ["tarif"], "response": "{success: true, ok: 1, error: 0}", "notes": "Created gid 58 'MCPTEST_TAR'. Packet name only; full fields not required for creation."
+    },
+    {
+      "tool": "mb_edit_packet", "uri": "/json/tarif/updatetariffl", "upstream": "editPacket", "scope": "finance",
+      "request": ["gid", "packet", "alias"],
+      "response": "{success: true, ok: 1, error: 0}",
+      "notes": "Other fields exist on the form (tos, floor_traffic, fixed, fixed_cost, do_block, speed_rate, speed_burst, usersgroupid, ...) and were not sent."
+    },
+    {
+      "tool": "mb_delete_packet", "uri": "/json/tarif/deltarifflex", "upstream": null, "scope": "finance",
+      "check": "/json/tarif/delchecktarifflex {gid} returned success", "request": ["gid"], "response": "{success: true, error: 0}"
+    },
+    {
+      "tool": "mb_set_personal_service", "uri": "/json/users/setpersonalserviceuser", "upstream": "setPersonalServiceUser", "scope": "finance",
+      "request": ["uid", "serviceid"],
+      "status": "BLOCKED",
+      "errors": ["service_portal for subscription=115 not found (error 27). No demo service has a service portal configured."]
+    },
+    {
+      "tool": "mb_freeze_user", "uri": "/json/users/dofreezeuserfl", "upstream": "setFreezeUser", "scope": "account_state",
+      "request": ["uid", "do_freeze_now", "do_return_abonplata", "freeze_do_ever", "freeze_date_start", "freeze_date_stop", "cena_freeze", "cena_sutok_freeze", "count_free_freeze", "count_free_freeze_use", "cena_unfreeze"],
+      "response": "{success: true, ok: 1, error: 0}"
+    },
+    {
+      "tool": "mb_bulk_enable_users", "uri": "/json/users/enableusersmulti", "scope": "account_state",
+      "request": ["set_users_list"], "response": "{success: true, ok: 1, error: 0}"
+    },
+    {
+      "tool": "mb_bulk_disable_users", "uri": "/json/users/disableusersmulti", "scope": "account_state",
+      "request": ["set_users_list"], "response": "{success: true, ok: 1, error: 0}"
+    },
+    {
+      "tool": "mb_bulk_delete_users", "uri": "/json/users/deleteusersmulti", "scope": "account_state",
+      "request": ["set_users_list"], "response": "{success: true, ok: 1, error: 0}",
+      "effect": "SOFT delete: the account stays in the database with state 4 and deletedtable 1 (status 'deleted'). Not verified whether it can be restored in the UI."
+    },
+    {
+      "tool": "mb_bulk_unfreeze_users", "uri": "/json/users/unfreezeusersmulti", "scope": "account_state",
+      "request": ["set_users_list"], "response": "{success: true, ok: 1, error: 0}"
+    },
+    {
+      "tool": "mb_bulk_enable_internet", "uri": "/json/users/enableinternetmulti", "scope": "account_state",
+      "request": ["set_users_list"], "response": "{success: true, ok: 1, error: 0}"
+    },
+    {
+      "tool": "mb_bulk_remove_credit", "uri": "/json/users/creditnullmulti", "scope": "finance",
+      "request": ["set_users_list"], "response": "{success: true, ok: 1, error: 0}"
+    },
+    {
+      "tool": "mb_bulk_issue_credit", "uri": "/json/users/creditmulti", "scope": "finance",
+      "request": ["set_users_list", "credit"], "response": "{success: true, ok: 1, error: 0}",
+      "notes": "credit is the amount (form field name confirmed)."
+    },
+    {
+      "tool": "mb_bulk_payment", "uri": "/json/users/paymentdomulti", "scope": "finance",
+      "request": ["set_users_list", "deposit", "prim2", "bughtypeid"], "response": "{success: true, ok: 1, error: 0}",
+      "effect": "Moves money on every listed account."
+    },
+    {
+      "tool": "mb_remove_credit_single", "uri": "/json/users/creditnullfl", "upstream": null, "scope": "finance",
+      "request": ["uid"], "response": "{success: true, data: [{username, ok}], error: 0}"
+    },
+    {
+      "tool": "mb_delete_user", "uri": "/json/users/deluserflex", "upstream": null, "scope": "account_state",
+      "request": ["uid"], "response": "{success: true, ok: 1, error: 0}",
+      "effect": "SOFT delete (same as bulk delete): state 4, deletedtable 1. The account still exists in the database."
+    },
+    {
+      "tool": "mb_delete_user_full", "uri": "/json/users/delfulluserflex", "upstream": null, "scope": "account_state",
+      "request": ["uid"],
+      "status": "DENIED BY SETTINGS",
+      "errors": ["{success: false, error: 1, errortext: 'Denied by settings'}"],
+      "notes": "Full delete is disabled in the demo's system settings. It may be enabled on other installations, so keep it out of v1."
+    },
+    {
+      "tool": "mb_create_sticky_note", "uri": "/extjs/users/createstickynotesuser", "upstream": "createStickyNotesUser", "scope": "write",
+      "request": ["uid", "prim", "description"],
+      "response": "{success: true, data: {uid, stuffid, created_at, id}, error: 0}",
+      "notes": "The uid field is uid, not useruid. With useruid the note is created without a user link (uid null)."
+    },
+    {
+      "tool": "mb_delete_sticky_note", "uri": "/extjs/users/deletestickynotesuser", "upstream": null, "scope": "write",
+      "request": ["id"], "response": "{success: true, data: {id}, error: 0}"
+    },
+    {
+      "tool": "mb_add_user_device", "uri": "/extjs/users/adduserdev", "upstream": "addUserDev", "scope": "write",
+      "request": ["useruid", "devtypeid", "dev_mac", "device_sn", "cost", "rent", "owner", "partner"],
+      "response": "{success: true, error: 0}",
+      "notes": "Accepted. Device list read-back not verified (getuserdevicesbyuid returned {}). Other fields on the form: dev_ip, dev_sectorid, card_id, module_id, portal_login, portal_password, activation_code, license_count, warehose, installments_price, installments_count."
+    },
+    {
+      "tool": "mb_add_dev_type", "uri": "/json/users/adddevtype", "upstream": "addDevType", "scope": "write",
+      "request": ["devtypename", "type", "default_cost", "default_rent", "default_owner", "description"],
+      "response": "{success: true, error: 0}", "created_id": 21,
+      "notes": "Calling with no params also returned success and created nothing. Require devtypename."
+    },
+    {
+      "tool": "mb_delete_dev_type", "uri": "/json/users/deletedevtype", "upstream": null, "scope": "write",
+      "request": ["devtypeid"], "response": "{success: true, data: [{error: 0, delete_list: \"1\"}], error: 0}"
+    },
+    {
+      "tool": "mb_create_user_group", "uri": "/json/options/setusersgroup", "upstream": "createUsersGroup", "scope": "admin",
+      "request": ["usersgroupname", "share", "description"], "response": "{success: true, data: [{error: 0, usersgroupid}], error: 0}", "created_id": 5
+    },
+    {
+      "tool": "mb_update_user_group", "uri": "/json/options/setusersgroup", "upstream": null, "scope": "admin",
+      "request": ["usersgroupid", "usersgroupname", "share", "description"], "response": "{success: true, data: [{error: 0, usersgroupid}], error: 0}",
+      "notes": "Same URI as create. Adding usersgroupid turns it into an update. Confirmed."
+    },
+    {
+      "tool": "mb_delete_user_group", "uri": "/json/options/deleteusersgroup", "upstream": null, "scope": "admin",
+      "request": ["usersgroupid"],
+      "status": "BLOCKED",
+      "errors": ["'Невозможно удалить, группа используется сотрудниками' (group is used by staff). Cause not identified: no staff in the list used group 5."],
+      "notes": "Test group 5 'MCPTEST_G' is still in the demo."
+    },
+    {
+      "tool": "mb_add_settlement", "uri": "/json/options/addsettlement", "upstream": "addSettlement", "scope": "write",
+      "request": ["settlementname"], "response": "{success: true, data: [{error: 0, settlementid}], error: 0}"
+    },
+    {
+      "tool": "mb_edit_settlement", "uri": "/json/options/editsettlement", "upstream": "editSettlement", "scope": "write",
+      "request": ["settlementid", "settlementname"], "response": "{success: true, error: 0}"
+    },
+    {
+      "tool": "mb_delete_settlement", "uri": "/json/options/deletesettlement", "upstream": null, "scope": "write",
+      "check": "/json/options/checkdeletesettlement {settlementid} returned success",
+      "request": ["settlementid"], "response": "{success: true, error: 0}"
+    },
+    {
+      "tool": "mb_add_neighborhood", "uri": "/json/options/addneighborhood", "upstream": "addNeighborhood", "scope": "write",
+      "request": ["settlementid", "neighborhoodname"], "response": "{success: true, data: [{error: 0, neighborhoodid}], error: 0}"
+    },
+    {
+      "tool": "mb_edit_neighborhood", "uri": "/json/options/editneighborhood", "upstream": "editNeighborhood", "scope": "write",
+      "request": ["settlementid", "neighborhoodid", "neighborhoodname"], "response": "{success: true, error: 0}"
+    },
+    {
+      "tool": "mb_delete_neighborhood", "uri": "/json/options/deleteneighborhood", "upstream": null, "scope": "write",
+      "request": ["neighborhoodid"], "response": "{success: true, error: 0}"
+    },
+    {
+      "tool": "mb_add_lane", "uri": "/json/options/addlanesflex", "upstream": "addLane", "scope": "write",
+      "request": ["settlementid", "lane"], "response": "{success: true, data: [{error: 0, laneid}], error: 0}"
+    },
+    {
+      "tool": "mb_edit_lane", "uri": "/json/options/editlaneflex", "upstream": "editLane", "scope": "write",
+      "request": ["settlementid", "laneid", "lane"], "response": "{success: true, error: 0}"
+    },
+    {
+      "tool": "mb_delete_lane", "uri": "/json/options/dellaneflex", "upstream": null, "scope": "write",
+      "request": ["laneid"], "response": "{success: true, error: 0}"
+    },
+    {
+      "tool": "mb_add_house", "uri": "/json/options/addhouseflex", "upstream": "addHouse", "scope": "write",
+      "request": ["house", "laneid", "neighborhoodid", "porches", "floors", "app_count_id", "postal_index"],
+      "response": "{success: true, data: [{error: 0, houseid}], error: 0}",
+      "errors": ["Without the required fields: generic 1202"]
+    },
+    {
+      "tool": "mb_edit_house", "uri": "/json/options/edithouselaneflex", "upstream": "editHouse", "scope": "write",
+      "request": ["houseid", "house", "laneid", "neighborhoodid", "porches", "floors", "postal_index", "app_count_id"],
+      "response": "{success: true, ok: 1, error: 0}"
+    },
+    {
+      "tool": "mb_delete_house", "uri": "/json/options/delhouseflex", "upstream": "deleteHouse", "scope": "account_state",
+      "request": ["houseid"],
+      "status": "BLOCKED",
+      "errors": ["{success: false, error: 8}. House still has users (soft-deleted accounts count)."],
+      "notes": "Error 8 is treated as 'in use'. The house MCPTEST_H1b (id 90) still exists."
+    },
+    {
+      "tool": "mb_add_sector", "uri": "/json/options/sectoraddflex", "upstream": "addSector", "scope": "write",
+      "request": ["sector"], "response": "{success: true, data: [{ok: 1, sectorid}], error: 0}",
+      "notes": "Other fields (iface, mask, subnet, dhcp_ranges, routers, vlanid, ...) exist on the form. Sector id 14 created with only a name had no IP config, so user creation failed on it."
+    },
+    {
+      "tool": "mb_edit_sector", "uri": "/json/options/sectoreditflex", "upstream": "editSector", "scope": "write",
+      "request": ["sectorid", "sector"], "response": "{success: true, data: [[]], error: 0}"
+    },
+    {
+      "tool": "mb_delete_sector", "uri": "/json/options/sectordelflex", "upstream": null, "scope": "write",
+      "request": ["sectorid"], "response": "{success: true, ok: 1, error: 0}"
+    },
+    {
+      "tool": "mb_add_switch_type", "uri": "/json/options/addswitchtypeflex", "upstream": "addSwitchType (wrapper had no params)", "scope": "write",
+      "request": ["swtypename", "devicetypeid", "numports", "snmp_type", "montype", "cisco"],
+      "response": "{success: true, data: [{ok: 1, swtypeid}], error: 0}",
+      "notes": "Upstream wrapper calls it with no params, which is why the wrapper looked unusable. With params it works."
+    },
+    {
+      "tool": "mb_edit_switch_type", "uri": "/json/options/editswithchtypeflex", "upstream": "editSwitchType", "scope": "write",
+      "request": ["swtypeid", "swtypename", "devicetypeid", "numports", "snmp_type", "dont_use_uplink", "do_check_switch_port", "do_mac_autoreg_by_radius", "use_circut_template", "use_unit_find", "use_module_find", "do_ip_unnumbered", "strict_dhcp_mode", "montype", "cisco"],
+      "response": "{success: true, ok: 1, error: 0}"
+    },
+    {
+      "tool": "mb_delete_switch_type", "uri": "/json/options/delswitchtypeflex", "upstream": "delSwitchType", "scope": "account_state",
+      "request": ["swtypeid"], "response": "{success: true, ok: 1, error: 0}"
+    },
+    {
+      "tool": "mb_add_switch", "uri": "/json/options/addswitchflex", "upstream": "addSwitch (wrapper had no params)", "scope": "write",
+      "request": ["nameswitch", "swtypeid", "ip", "mac", "address", "parent_swid", "mgmt_vlan", "user_vlan"],
+      "response": "{success: true, data: [{ok: 1, swid}], error: 0}",
+      "notes": "Upstream wrapper had no params, so it looked unusable. With params it works."
+    },
+    {
+      "tool": "mb_edit_switch", "uri": "/json/options/editswitchflex", "upstream": "editSwitch", "scope": "write",
+      "request": ["swid", "nameswitch", "swtypeid", "ip", "mac", "address"], "response": "{success: true, error: 0}"
+    },
+    {
+      "tool": "mb_delete_switch", "uri": "/json/options/delswitchflex", "upstream": "delSwitch", "scope": "account_state",
+      "request": ["swid"], "response": "{success: true, ok: 1, error: 0}"
+    }
+  ],
+  "superseded_2026-11-15": {
+    "note": "Later investigation (fixtures/discovered_and_blockers.json) changed these results. Use that file for them.",
+    "mb_enable_flex_tariff": "UNBLOCKED. Works on a disconnected user with type_list=2 and itog_summa.",
+    "mb_set_personal_service": "UNBLOCKED with serviceid 101 (portal 0). serviceid 115 still fails (Wink portal 18 not configured).",
+    "mb_delete_user_group": "UNBLOCKED with delete_list. usersgroupid always returns 'in use'.",
+    "mb_delete_house": "Still blocked by design via houseid. delete_list bypasses the check and must not be used."
+  },
+  "not_verified": [
+    "mb_update_user_group verified; mb_delete_user_group see superseded above",
+    "mb_delete_house blocked by in-use check (houseid path)"
+  ]
+}

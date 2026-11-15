@@ -1,0 +1,21 @@
+{
+  "tool": "mb_list_switch_types",
+  "upstream_method": "getSwitchTypeList",
+  "uri": "/json/options/switchtypelistflex",
+  "status": "captured",
+  "captured_from": "https://admin.mikbill.pro, Admin.store.options.switchtypelistflex",
+  "captured_at": "2026-11-15",
+  "request": {"encoding": "application/x-www-form-urlencoded", "method": "POST", "fields": []},
+  "response": {
+    "envelope": {"success": "boolean", "data": "array"},
+    "record_fields": {
+      "swtypeid": "number", "devicetypeid": "number", "swtypename": "string", "numports": "number", "snmp_type": "number",
+      "dont_use_uplink": "number", "do_check_switch_port": "number", "do_mac_autoreg_by_radius": "number",
+      "do_ip_unnumbered": "number", "use_circut_template": "number", "circut_template": "string",
+      "use_unit_find": "number", "use_module_find": "number", "strict_dhcp_mode": "number", "montype": "number",
+      "cisco": "number", "devicetypename": "string", "snmp_type_text": "string", "dont_use_uplink_text": "string",
+      "do_check_switch_port_text": "string", "do_mac_autoreg_by_radius_text": "string", "do_ip_unnumbered_text": "string"
+    }
+  },
+  "notes": ["Demo returned 9 records."]
+}

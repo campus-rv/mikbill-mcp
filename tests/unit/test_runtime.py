@@ -1,0 +1,280 @@
+import json
+
+import pytest
+
+from conftest import ALL_SCOPE_SET, FakeClient
+from mb_mcp.endpoints import ALL
+from mb_mcp.errors import MikbillError
+from mb_mcp.runtime import Runtime
+
+READ_WRITE = frozenset({"read", "write"})
+
+
+def names(runtime, scopes):
+    return {ep.tool for ep in runtime.tools_for(scopes)}
+
+
+# ---- scopes and listing ---------------------------------------------------------------------
+
+def test_listing_respects_scopes(runtime):
+    assert len(names(runtime, READ_WRITE)) == 39
+    assert len(names(runtime, ALL_SCOPE_SET)) == 80
+    assert "mb_delete_user" not in names(runtime, READ_WRITE)
+    assert "mb_create_payment" not in names(runtime, frozenset({"read", "write", "account_state"}))
+
+
+def test_listing_is_limited_by_server_scopes(settings):
+    from dataclasses import replace
+    rt = Runtime(replace(settings, scopes=frozenset({"read"})), FakeClient())
+    assert len(rt.tools_for(ALL_SCOPE_SET)) == 19
+
+
+def test_every_tool_has_a_valid_input_schema(runtime):
+    for ep in ALL:
+        d = runtime.describe(ep)
+        s = d["inputSchema"]
+        assert s["type"] == "object" and s["additionalProperties"] is False
+        assert set(s["required"]) <= set(s["properties"]), ep.tool
+        assert ("dry_run" in s["properties"]) == ep.gated
+        assert ("reason" in s["required"]) == ep.gated
+        assert d["description"]
+
+
+async def test_scope_denied_for_ungranted_tool(runtime, fake):
+    r = await runtime.execute("mb_delete_user", {"uid": 1, "reason": "test"}, READ_WRITE)
+    assert r["ok"] is False and r["error"]["code"] == "scope_denied"
+    assert fake.calls == []
+
+
+async def test_unknown_tool(runtime):
+    r = await runtime.execute("mb_nope", {}, ALL_SCOPE_SET)
+    assert r["error"]["code"] == "validation"
+
+
+# ---- validation -----------------------------------------------------------------------------
+
+async def test_unknown_and_missing_parameters(runtime, fake):
+    r = await runtime.execute("mb_get_user", {"uid": 1, "bogus": 2}, READ_WRITE)
+    assert r["error"]["code"] == "validation" and "bogus" in r["error"]["message"]
+    r = await runtime.execute("mb_get_user", {}, READ_WRITE)
+    assert r["error"]["code"] == "validation" and "uid" in r["error"]["message"]
+    assert fake.calls == []
+
+
+async def test_search_users_requires_a_filter(runtime):
+    r = await runtime.execute("mb_search_users", {}, READ_WRITE)
+    assert r["error"]["code"] == "validation"
+
+
+async def test_values_must_be_scalars(runtime):
+    r = await runtime.execute("mb_get_user", {"uid": [1]}, READ_WRITE)
+    assert r["error"]["code"] == "validation"
+
+
+async def test_dry_run_flag_is_not_accepted_on_ungated_tools(runtime):
+    r = await runtime.execute("mb_get_user", {"uid": 1, "dry_run": True}, READ_WRITE)
+    assert r["error"]["code"] == "validation"
+
+
+async def test_bulk_uid_validation(runtime):
+    for bad in ([], [1, 1], [1, "2"], list(range(6)), "1,2"):
+        r = await runtime.execute("mb_bulk_disable_users", {"uids": bad, "reason": "test"}, ALL_SCOPE_SET)
+        assert r["error"]["code"] == "validation", bad
+
+
+# ---- read tools -----------------------------------------------------------------------------
+
+async def test_read_tool_returns_data_and_redacts_credentials(runtime, fake):
+    fake.responses["/json/users/getuserdatambp"] = {
+        "success": True, "totalCount": 0,
+        "data": {"user": "u1", "password": "plain", "router_pass": "rp", "fio": "Name"}}
+    r = await runtime.execute("mb_get_user", {"uid": 1}, READ_WRITE)
+    assert r["ok"] is True
+    assert r["data"]["password"] != "plain" and r["data"]["router_pass"] != "rp"
+    assert r["data"]["user"] == "u1"
+    assert fake.posted("/json/users/getuserdatambp") == [{"uid": "1"}]
+
+
+async def test_check_session(runtime, fake):
+    r = await runtime.execute("mb_check_session", {}, READ_WRITE)
+    assert r["data"] == {"logged_in": True}
+    assert fake.calls[0][0] == "/json/users/getcountfl"
+
+
+async def test_upstream_error_becomes_an_error_envelope(runtime, fake):
+    fake.responses["/json/users/getuserdatambp"] = MikbillError("auth_failed", "no")
+    r = await runtime.execute("mb_get_user", {"uid": 1}, READ_WRITE)
+    assert r == {"ok": False, "error": {"code": "auth_failed", "message": "no"}}
+
+
+# ---- writes (not gated) ---------------------------------------------------------------------
+
+async def test_write_applies_defaults_and_encodes_values(runtime, fake):
+    fake.responses["/extjs/users/createabonent"] = {"success": True, "data": {"useruid": 9, "user": "u"}}
+    args = {"user": "u", "password": "p", "fio": "F", "gid": 1, "sectorid": 13, "settlementid": 1,
+            "neighborhoodid": 2, "laneid": 3, "houseid": 4, "app": "1"}
+    r = await runtime.execute("mb_create_user", args, READ_WRITE)
+    assert r["ok"]
+    sent = fake.posted("/extjs/users/createabonent")[0]
+    assert sent["use_installments"] == "0" and sent["lane_create"] == "0" and sent["phone"] == ""
+    assert sent["gid"] == "1"
+
+
+async def test_kick_user_is_not_gated(runtime, fake):
+    r = await runtime.execute("mb_kick_user", {"uid": 5}, READ_WRITE)
+    assert r["ok"] and fake.posted("/json/users/userkickfl") == [{"uid": "5"}]
+
+
+# ---- gated: dry-run and approval ------------------------------------------------------------
+
+def gated(args, **extra):
+    return {**args, "reason": "unit test", **extra}
+
+
+async def test_dry_run_is_the_default_and_makes_no_change(runtime, fake):
+    r = await runtime.execute("mb_create_payment", gated({"uid": 1, "bughtypeid": 17, "deposit": 10, "prim2": "n"}), ALL_SCOPE_SET)
+    assert r["ok"] and r["dry_run"] is True
+    assert r["data"]["approval_token"] and r["data"]["summary"]["total_amount"] == 10.0
+    assert fake.posted("/json/users/paymentdoflex") == []
+
+
+async def test_execute_needs_a_token(runtime, fake):
+    args = {"uid": 1, "bughtypeid": 17, "deposit": 10, "prim2": "n"}
+    r = await runtime.execute("mb_create_payment", gated(args, dry_run=False), ALL_SCOPE_SET)
+    assert r["error"]["code"] == "approval_required"
+    assert fake.posted("/json/users/paymentdoflex") == []
+
+
+async def test_full_flow_then_token_is_spent(runtime, fake):
+    args = {"uid": 1, "bughtypeid": 17, "deposit": 10, "prim2": "n"}
+    token = (await runtime.execute("mb_create_payment", gated(args), ALL_SCOPE_SET))["data"]["approval_token"]
+    r = await runtime.execute("mb_create_payment", gated(args, dry_run=False, approval_token=token), ALL_SCOPE_SET)
+    assert r["ok"]
+    assert fake.posted("/json/users/paymentdoflex") == [{"uid": "1", "bughtypeid": "17", "deposit": "10", "prim2": "n"}]
+    again = await runtime.execute("mb_create_payment", gated(args, dry_run=False, approval_token=token), ALL_SCOPE_SET)
+    assert again["error"]["code"] == "approval_required"
+    assert len(fake.posted("/json/users/paymentdoflex")) == 1
+
+
+async def test_token_does_not_apply_to_changed_params(runtime, fake):
+    args = {"uid": 1, "bughtypeid": 17, "deposit": 10, "prim2": "n"}
+    token = (await runtime.execute("mb_create_payment", gated(args), ALL_SCOPE_SET))["data"]["approval_token"]
+    changed = {**args, "deposit": 1000}
+    r = await runtime.execute("mb_create_payment", gated(changed, dry_run=False, approval_token=token), ALL_SCOPE_SET)
+    assert r["error"]["code"] == "approval_required"
+    assert fake.posted("/json/users/paymentdoflex") == []
+
+
+@pytest.mark.parametrize("reason", [None, "", "no"])
+async def test_reason_is_required_on_gated_calls(runtime, reason):
+    args = {"uid": 1}
+    if reason is not None:
+        args["reason"] = reason
+    r = await runtime.execute("mb_delete_user", args, ALL_SCOPE_SET)
+    assert r["error"]["code"] == "validation" and "reason" in r["error"]["message"]
+
+
+async def test_bulk_dry_run_lists_every_uid_and_total(runtime, fake):
+    fake.responses["/json/users/getuserdatambp"] = lambda p: {
+        "success": True, "data": {"useruid": int(p["uid"]), "user": "u" + p["uid"], "state": "1",
+                                  "status": "normal", "deletedtable": 0, "password": "plain"}}
+    r = await runtime.execute("mb_bulk_payment", gated({"uids": [10, 11, 12], "bughtypeid": 17, "deposit": 5, "prim2": "x"}),
+                              ALL_SCOPE_SET)
+    s = r["data"]["summary"]
+    assert [t["uid"] for t in s["targets"]] == [10, 11, 12]
+    assert s["count"] == 3
+    assert s["total_amount"] == 15.0
+    assert "plain" not in json.dumps(r)
+    assert r["data"]["request"]["params"]["set_users_list"] == "10,11,12"
+
+
+async def test_bulk_user_state_dry_run_never_leaks_passwords(runtime, fake):
+    fake.responses["/json/users/getuserdatambp"] = lambda p: {
+        "success": True, "data": {"useruid": int(p["uid"]), "user": "u", "state": "1", "status": "normal",
+                                  "deletedtable": 0, "password": "plain"}}
+    r = await runtime.execute("mb_bulk_delete_users", gated({"uids": [10, 11]}), ALL_SCOPE_SET)
+    targets = r["data"]["summary"]["targets"]
+    assert [t["uid"] for t in targets] == [10, 11]
+    assert "plain" not in json.dumps(r)
+    assert r["data"]["summary"]["count"] == 2
+    assert any("Soft delete" in w for w in r["data"]["warnings"])
+
+
+async def test_bulk_uids_are_sent_as_set_users_list(runtime, fake):
+    args = {"uids": [10, 11]}
+    token = (await runtime.execute("mb_bulk_unfreeze_users", gated(args), ALL_SCOPE_SET))["data"]["approval_token"]
+    await runtime.execute("mb_bulk_unfreeze_users", gated(args, dry_run=False, approval_token=token), ALL_SCOPE_SET)
+    assert fake.posted("/json/users/unfreezeusersmulti") == [{"set_users_list": "10,11"}]
+
+
+async def _run_gated(runtime, tool, args):
+    token = (await runtime.execute(tool, gated(args), ALL_SCOPE_SET))["data"]["approval_token"]
+    return await runtime.execute(tool, gated(args, dry_run=False, approval_token=token), ALL_SCOPE_SET)
+
+
+async def test_soft_delete_reads_back_the_state(runtime, fake):
+    fake.responses["/json/users/getuserdatambp"] = {"success": True, "data": {"useruid": 7, "user": "u", "state": "4",
+                                                                              "status": "deleted", "deletedtable": 1}}
+    r = await _run_gated(runtime, "mb_delete_user", {"uid": 7})
+    assert r["ok"]
+    assert r["state_after"][0]["status"] == "deleted" and r["state_after"][0]["deletedtable"] == 1
+    assert fake.posted("/json/users/deluserflex") == [{"uid": "7"}]
+
+
+async def test_delete_house_sends_houseid_never_delete_list(runtime, fake):
+    await _run_gated(runtime, "mb_delete_house", {"houseid": 92})
+    assert fake.posted("/json/options/delhouseflex") == [{"houseid": "92"}]
+
+
+async def test_delete_house_conflict_is_reported(runtime, fake):
+    fake.responses["/json/options/delhouseflex"] = MikbillError("conflict", "in use")
+    r = await _run_gated(runtime, "mb_delete_house", {"houseid": 92})
+    assert r["error"]["code"] == "conflict"
+
+
+async def test_delete_user_group_sends_delete_list(runtime, fake):
+    r = await runtime.execute("mb_delete_user_group", gated({"usersgroupid": 5}), ALL_SCOPE_SET)
+    assert any("not checked" in w for w in r["data"]["warnings"])
+    token = r["data"]["approval_token"]
+    await runtime.execute("mb_delete_user_group", gated({"usersgroupid": 5}, dry_run=False, approval_token=token), ALL_SCOPE_SET)
+    assert fake.posted("/json/options/deleteusersgroup") == [{"delete_list": "5"}]
+
+
+async def test_fixed_and_default_params(runtime, fake):
+    await _run_gated(runtime, "mb_enable_flex_tariff", {"uid": 3, "gid": 49})
+    assert fake.posted("/json/users/vkluserflex") == [{"uid": "3", "gid": "49", "itog_summa": "0", "type_list": "2"}]
+    await _run_gated(runtime, "mb_delete_disconnected_user", {"uid": 3, "gid": 49})
+    assert fake.posted("/json/users/deluserotklflex") == [{"uid": "3", "gid": "49", "itog_summa": "0", "type_list": "2"}]
+
+
+async def test_delete_check_endpoint_runs_during_dry_run(runtime, fake):
+    r = await runtime.execute("mb_delete_settlement", gated({"settlementid": 16}), ALL_SCOPE_SET)
+    assert r["data"]["summary"]["check"] == {"uri": "/json/options/checkdeletesettlement", "ok": True}
+    assert fake.posted("/json/options/deletesettlement") == []
+
+
+async def test_blocked_tools_warn_in_dry_run(runtime):
+    r = await runtime.execute("mb_set_personal_service", gated({"uid": 1, "serviceid": 115}), ALL_SCOPE_SET)
+    assert r["data"]["warnings"]
+
+
+async def test_failed_gated_call_returns_the_upstream_error(runtime, fake):
+    fake.responses["/json/users/paymentdoflex"] = MikbillError("upstream_error", "boom")
+    args = {"uid": 1, "bughtypeid": 17, "deposit": 1, "prim2": "n"}
+    r = await _run_gated(runtime, "mb_create_payment", args)
+    assert r["error"]["code"] == "upstream_error"
+
+
+async def test_audit_records_do_not_contain_personal_data(settings, fake, tmp_path):
+    from dataclasses import replace
+    from mb_mcp.audit import AuditLog
+    from mb_mcp.gating import ApprovalStore
+    path = tmp_path / "audit.log"
+    rt = Runtime(replace(settings), fake, ApprovalStore(), AuditLog(str(path)))
+    await rt.execute("mb_create_user", {"user": "u", "password": "topsecret", "fio": "Real Name", "gid": 1,
+                                        "sectorid": 1, "settlementid": 1, "neighborhoodid": 1, "laneid": 1,
+                                        "houseid": 1, "app": "1", "phone": "+380995551234", "email": "a@b.c"},
+                     READ_WRITE, principal="agent1")
+    text = path.read_text(encoding="utf-8")
+    assert "topsecret" not in text and "Real Name" not in text and "995551234" not in text and "a@b.c" not in text
+    assert "mb_create_user" in text and "agent1" in text

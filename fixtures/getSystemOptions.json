@@ -1,0 +1,17 @@
+{
+  "tool": "mb_get_system_options",
+  "upstream_method": "getSystemOptions",
+  "uri": "/extjs/users/getsystemoptions",
+  "status": "captured",
+  "captured_from": "https://admin.mikbill.pro, direct POST probe",
+  "captured_at": "2026-11-15",
+  "request": {"encoding": "application/x-www-form-urlencoded", "method": "POST", "fields": []},
+  "response": {
+    "envelope": {"success": "boolean", "totalCount": "integer", "data": "array with one object"},
+    "record_fields": "flat object of option names (uppercase keys such as ARP_DO_ETHERS, CLRLINE_CISCO, CLRLINE_PORTSLAVE). Keys not fully enumerated."
+  },
+  "notes": [
+    "Contains server paths and system settings. Treat as admin-only data. Consider restricting to the read scope with a field allowlist.",
+    "Full key list not enumerated; capture it in a later pass if the MCP needs to expose specific options."
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "tool": "mb_bulk_enable_users",
+  "upstream_method": null,
+  "uri": "/json/users/enableusersmulti",
+  "status": "source_confirmed",
+  "captured_from": "admin UI bundle: Confirm window (widgetwindowconfirm) and Enable form, not submitted",
+  "captured_at": "2026-11-15",
+  "request": {
+    "encoding": "application/x-www-form-urlencoded",
+    "method": "POST",
+    "fields": [
+      {"name": "set_users_list", "type": "string", "required": true, "example": "1,2,3", "note": "Comma-joined useruid values of the selected users. Built from the UI selection, joined with ','."}
+    ]
+  },
+  "response": {"envelope": {"success": "boolean"}, "on_failure": "{success: false}; the UI shows an error toast"},
+  "scope_proposal": "account_state (enabling accounts changes service; mirrors freeze/disable)",
+  "notes": ["Not in the upstream wrapper. Applies to every uid in the list in one call; no per-call cap is visible in the UI code."]
+}

@@ -1,0 +1,25 @@
+{
+  "tool": "mb_get_user_short_history",
+  "upstream_method": "getUserShortHistory",
+  "uri": "/extjs/users/usershorthistory",
+  "status": "captured",
+  "captured_from": "https://admin.mikbill.pro, Admin.store.users.getusercanvasstat (store url /extjs/users/usershorthistory)",
+  "captured_at": "2026-11-15",
+  "request": {
+    "encoding": "application/x-www-form-urlencoded",
+    "method": "POST",
+    "fields": [{"name": "uid", "type": "integer", "required": true, "example": 1}]
+  },
+  "response": {
+    "envelope": {"success": "boolean", "data": "array (one object)", "error": "integer"},
+    "record_fields": {
+      "postauth": "object (array of rows, includes plaintext subscriber `pass`)",
+      "stattraf": "object", "statdhcp": "object", "statusluga": "object", "statpay": "object", "switchlog": "object",
+      "tickets": "object", "logs": "object", "statperevod": "object", "statpendingchange": "object", "sms": "object"
+    }
+  },
+  "notes": [
+    "SENSITIVE: `postauth` rows include the subscriber's plaintext `pass` and calling-station identifiers. Redact by default.",
+    "Upstream labels this endpoint as a short history. The UI binds it to the canvas stat store."
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "tool": "mb_edit_neighborhood",
+  "upstream_method": "editNeighborhood",
+  "uri": "/json/options/editneighborhood",
+  "status": "source_derived",
+  "captured_from": "admin UI bundle (params literal), not submitted",
+  "captured_at": "2026-11-15",
+  "request": {
+    "encoding": "application/x-www-form-urlencoded",
+    "method": "POST",
+    "fields": [
+      {"name": "settlementid", "type": "integer", "required": true},
+      {"name": "neighborhoodid", "type": "integer", "required": true},
+      {"name": "neighborhoodname", "type": "string", "required": true}
+    ]
+  },
+  "response": {"envelope": {"success": "boolean"}},
+  "notes": ["Field names from UI source. Not submitted."]
+}

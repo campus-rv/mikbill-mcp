@@ -1,0 +1,18 @@
+{
+  "tool": "mb_list_houses",
+  "upstream_method": "getUsersHousesFullList",
+  "uri": "/json/users/housesfulllist",
+  "status": "captured",
+  "captured_from": "https://admin.mikbill.pro, Admin.store.users.housesfulllist",
+  "captured_at": "2026-11-15",
+  "request": {"encoding": "application/x-www-form-urlencoded", "method": "POST", "fields": []},
+  "response": {
+    "envelope": {"success": "boolean", "data": "array"},
+    "record_fields": {
+      "houseid": "number", "laneid": "number", "lane": "string", "settlementid": "number", "settlementname": "string",
+      "neighborhoodid": "number", "postal_index": "string", "neighborhoodname": "string", "house": "string",
+      "porches": "number", "floors": "number", "app_count_id": "string", "porch": "object", "floor": "object"
+    }
+  },
+  "notes": ["Demo returned 89 records."]
+}

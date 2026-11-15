@@ -1,0 +1,21 @@
+{
+  "tool": "mb_list_sectors",
+  "upstream_method": "getSectorList",
+  "uri": "/json/users/sectorlistflex",
+  "status": "captured",
+  "captured_from": "https://admin.mikbill.pro, Admin.store.users.sectorlistflex",
+  "captured_at": "2026-11-15",
+  "request": {"encoding": "application/x-www-form-urlencoded", "method": "POST", "fields": []},
+  "response": {
+    "envelope": {"success": "boolean", "data": "array"},
+    "record_fields": {
+      "sectorid": "number", "sector": "string", "iface": "string", "classless_route": "string", "static_routes": "string",
+      "mask": "string", "subnet": "string", "broadcast": "string", "dns_serv": "string", "wins_serv": "string",
+      "netbios_dd_serv": "string", "routers": "string", "dns_serv2": "string", "time_serv": "string",
+      "dhcp_ranges": "string", "shared_network1": "string", "shared_network2": "string", "shared_network3": "string",
+      "vlanid": "number", "del_ip1": "string", "del_ip2": "string", "del_ip3": "string", "del_ip4": "string",
+      "ip_unnumbered_mode": "string", "netmask": "string", "vlanDisplayText": "string"
+    }
+  },
+  "notes": ["Demo returned 4 records."]
+}

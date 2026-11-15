@@ -1,0 +1,17 @@
+{
+  "tool": "mb_list_user_groups",
+  "upstream_method": "getUsersGroupsList",
+  "uri": "/json/options/usersgroupslist",
+  "status": "captured",
+  "captured_from": "https://admin.mikbill.pro, direct POST probe (UI uses /extjs/index/usersgroupslist and /extjs/users/usersgroupslist)",
+  "captured_at": "2026-11-15",
+  "request": {"encoding": "application/x-www-form-urlencoded", "method": "POST", "fields": []},
+  "response": {
+    "envelope": {"success": "boolean", "totalCount": "integer", "data": "array"},
+    "record_fields": {"usersgroupid": "string", "usersgroupname": "string", "description": "string", "share": "string", "archived": "string", "companyid": "string"}
+  },
+  "notes": [
+    "Demo returned 4 groups. Two other URIs return the same data: /extjs/index/usersgroupslist (envelope with totalCount) and /extjs/users/usersgroupslist (envelope without totalCount, numeric usersgroupid).",
+    "Choose one URI and keep the envelope handling consistent."
+  ]
+}

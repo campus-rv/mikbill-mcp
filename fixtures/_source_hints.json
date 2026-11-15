@@ -1,0 +1,32 @@
+{
+  "captured_at": "2026-11-15",
+  "status": "source_hint",
+  "method": "Field names extracted from the admin UI bundle (app.js) by reading the code after each URI. Not verified by opening the forms or submitting. Extraction is approximate: some names belong to neighbouring components. Confidence: high = seen in a direct params literal or onSave; medium = form fields in the same class; low = nearby names only, probably incomplete or wrong. Verify each by opening the form (no save) before implementing.",
+  "endpoints": [
+    {"tool": "mb_create_user", "uri": "/extjs/users/createabonent", "fields": ["password", "fio", "phone", "email", "prim"], "confidence": "medium", "scope": "write"},
+    {"tool": "mb_update_user", "uri": "/extjs/users/updateuser", "fields": ["points", "state_name"], "confidence": "low", "scope": "write", "note": "Must also include the user identifier. Not found in extraction."},
+    {"tool": "mb_create_sticky_note", "uri": "/extjs/users/createstickynotesuser", "fields": [], "confidence": "none", "scope": "write", "note": "No fields extracted. Open the note form."},
+    {"tool": "mb_add_user_device", "uri": "/extjs/users/adduserdev", "fields": ["devid", "devtypeid", "useruid", "dev_ip", "dev_sectorid", "dev_mac", "card_id", "module_id", "device_sn", "portal_login", "portal_password", "code_activation", "license_count"], "confidence": "low", "scope": "write"},
+    {"tool": "mb_add_dev_type", "uri": "/json/users/adddevtype", "fields": ["devtypeid", "devtypename", "dev_sectorid", "dev_ip", "card_id", "module_id", "dev_mac", "device_sn", "portal_login", "portal_password", "code_activation", "license_count", "deny_to_change_owner_settings", "default_rent", "default_cost", "installments_price", "installments_count"], "confidence": "low", "scope": "write", "note": "devtypeid on an add call looks wrong. Verify."},
+    {"tool": "mb_add_settlement", "uri": "/json/options/addsettlement", "fields": ["settlementname"], "confidence": "medium", "scope": "write"},
+    {"tool": "mb_add_neighborhood", "uri": "/json/options/addneighborhood", "fields": ["neighborhoodname"], "confidence": "medium", "scope": "write", "note": "Parent settlement id likely required. Not extracted."},
+    {"tool": "mb_add_house", "uri": "/json/options/addhouseflex", "fields": ["porches", "app_count_id", "floors"], "confidence": "low", "scope": "write", "note": "House name, lane and neighborhood ids likely required. Not extracted."},
+    {"tool": "mb_add_lane", "uri": "/json/options/addlanesflex", "fields": ["lane"], "confidence": "low", "scope": "write", "note": "Settlement/neighborhood id likely required."},
+    {"tool": "mb_add_sector", "uri": "/json/options/sectoraddflex", "fields": [], "confidence": "none", "scope": "write", "note": "Open the sector form."},
+    {"tool": "mb_edit_sector", "uri": "/json/options/sectoreditflex", "fields": [], "confidence": "none", "scope": "write", "note": "Open the sector form."},
+    {"tool": "mb_edit_switch", "uri": "/json/options/editswitchflex", "fields": ["swid"], "confidence": "low", "scope": "write"},
+    {"tool": "mb_edit_switch_type", "uri": "/json/options/editswithchtypeflex", "fields": ["swtypeid", "swtypename", "devicetypeid", "numports", "snmp_type", "cisco", "dont_use_uplink", "do_check_switch_port", "do_mac_autoreg_by_radius", "use_unit_find", "use_module_find", "use_circut_template", "circut_template", "do_ip_unnumbered", "strict_dhcp_mode", "montype"], "confidence": "medium", "scope": "write"},
+    {"tool": "mb_create_payment", "uri": "/json/users/paymentdoflex", "fields": ["uid", "deposit", "prim2"], "confidence": "medium", "scope": "finance", "note": "Single-user version of the bulk payment form."},
+    {"tool": "mb_change_tariff", "uri": "/json/users/dochangetarifflex", "fields": ["abonplata_real_now", "tarif_perevod_vverh", "tarif_perevod_vniz", "tarif_abonka_old", "tarif_abonka_new", "abonplata_raznica", "itog_summa"], "confidence": "medium", "scope": "finance"},
+    {"tool": "mb_enable_flex_tariff", "uri": "/json/users/vkluserflex", "fields": [], "confidence": "none", "scope": "finance", "note": "Open the form."},
+    {"tool": "mb_add_packet", "uri": "/json/tarif/addtarifflex", "fields": ["tarif"], "confidence": "low", "scope": "finance", "note": "Packet fields not extracted."},
+    {"tool": "mb_edit_packet", "uri": "/json/tarif/updatetariffl", "fields": ["set_list", "unset_list"], "confidence": "low", "scope": "finance"},
+    {"tool": "mb_set_personal_service", "uri": "/json/users/setpersonalserviceuser", "fields": [], "confidence": "none", "scope": "finance", "note": "Open the form."},
+    {"tool": "mb_freeze_user", "uri": "/json/users/dofreezeuserfl", "fields": ["do_freeze_now", "do_return_abonplata", "freeze_do_ever", "freeze_date_start", "freeze_date_stop", "cena_freeze", "cena_sutok_freeze", "count_free_freeze", "count_free_freeze_use", "cena_unfreeze", "freezefixedmonthnum"], "confidence": "medium", "scope": "account_state"},
+    {"tool": "mb_delete_house", "uri": "/json/options/delhouseflex", "fields": ["house"], "confidence": "low", "scope": "account_state", "note": "Upstream sends houseid. Confirm."},
+    {"tool": "mb_delete_switch", "uri": "/json/options/delswitchflex", "fields": ["nameswitch", "swtypename"], "confidence": "low", "scope": "account_state", "note": "Upstream sends swid-based call. Confirm."},
+    {"tool": "mb_delete_switch_type", "uri": "/json/options/delswitchtypeflex", "fields": ["swtypename"], "confidence": "low", "scope": "account_state"},
+    {"tool": "mb_create_user_group", "uri": "/json/options/setusersgroup", "fields": [], "confidence": "none", "scope": "admin", "note": "Open the group form."},
+    {"tool": "mb_update_user_group", "uri": "/json/options/setusersgroup", "fields": [], "confidence": "none", "scope": "admin", "note": "Same URI as create. Probably one endpoint with an id field. Confirm."}
+  ]
+}

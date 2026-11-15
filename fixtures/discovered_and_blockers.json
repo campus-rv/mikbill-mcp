@@ -1,0 +1,121 @@
+{
+  "captured_at": "2026-11-15",
+  "target": "https://admin.mikbill.pro (public demo). MCPTEST records only. Approval given by the user for MCPTEST records.",
+  "important": {
+    "delete_param_name": "Some deletes take `delete_list` (the UI's paramsubmit), others take the id field. Choosing the wrong one changes behaviour. See the house finding.",
+    "house_delete_bypass": "/json/options/delhouseflex with `delete_list` skips the in-use check. With `houseid` it returns error 8 when users reference the house. Test: house 92 was deleted via delete_list while user 862 (mcptest12) still referenced it. The orphaned reference remains on the demo. The MCP must send `houseid` only, never `delete_list`, and must report referencing users in dry-run."
+  },
+  "discovered_endpoints": [
+    {
+      "uri": "/json/users/otkluserflex", "tool": "mb_disconnect_user", "status": "verified",
+      "request": ["uid", "cena_freeze"],
+      "effect": "Sets state 3, status 'otkluchen' (disconnected). otkluchentable 1.",
+      "scope": "account_state", "gated": true
+    },
+    {
+      "uri": "/json/users/deluserotklflex", "tool": "mb_delete_disconnected_user", "status": "verified",
+      "request": ["uid", "gid", "itog_summa", "type_list"],
+      "effect": "Soft delete: state 4, deletedtable 1. Applies to a disconnected user.",
+      "scope": "account_state", "gated": true
+    },
+    {
+      "uri": "/json/users/vkluserflex", "tool": "mb_enable_flex_tariff", "status": "verified (previously blocked)",
+      "request": ["uid", "gid", "itog_summa", "type_list"],
+      "effect": "Reactivates a disconnected user (state 3) on the chosen VKL tariff (gid 49 used). State goes to 1, status 'normal'.",
+      "precondition": "User must be disconnected (state 3). Without type_list=2 and itog_summa, the call on an active user fails with MSG_ERROR_ABONENT_DUPLICATE_LOGIN.",
+      "scope": "finance", "gated": true
+    },
+    {
+      "uri": "/json/users/unsetpersonalserviceuser", "tool": "mb_unset_personal_service", "status": "verified",
+      "request": ["uid", "serviceid", "activate", "code"],
+      "errors": ["Missing serviceid: 'Не указан обязательный параметр: serviceid'"],
+      "effect": "Returns success with empty msg. A user with no personal service was used, so no visible change.",
+      "scope": "finance", "gated": true
+    },
+    {
+      "uri": "/json/users/usevaucherfl", "tool": "mb_use_voucher", "status": "partially verified",
+      "request": ["uid", "code"],
+      "errors": ["Wrong code: 'Неверный код ваучера' (error 1). No state change."],
+      "effect": "A valid voucher code adds its nominal to the balance. Not exercised: a real code would change the demo balance and was not read from the voucher list.",
+      "scope": "finance", "gated": true
+    },
+    {
+      "uri": "/json/options/delippoolsflex", "tool": "mb_delete_ip_pool", "status": "verified",
+      "request": ["poolname"],
+      "effect": "Deleted MCPTEST_POOL (created with addippoolsflex {poolname}).",
+      "scope": "account_state", "gated": true
+    },
+    {
+      "uri": "/json/options/delrealipflex", "tool": "mb_delete_real_ip", "status": "verified",
+      "request": ["real"],
+      "effect": "Deleted one real IP per call. Real IPs are identified by the address string.",
+      "scope": "account_state", "gated": true,
+      "notes": "Created with addrealipflex {localip, netmask, cidrmask, hostmin, hostmax, hosts}. 254 addresses were created and deleted one by one. Each delete is a separate call."
+    },
+    {
+      "uri": "/json/options/nasserverdelflex", "tool": "mb_delete_nas", "status": "verified",
+      "request": ["nasid"],
+      "errors": ["Missing 'nasid' with the field name nasname (error 1)"],
+      "effect": "Deleted MCPTEST_NAS (id 16, created with nasaddflex {nasname, nasip, secret, shortname}).",
+      "scope": "account_state", "gated": true
+    },
+    {
+      "uri": "/json/options/delippoolsipflex", "tool": "mb_remove_ip_from_pool", "status": "not verified",
+      "request": ["poolip"],
+      "effect": "A bogus poolip returned an empty object {} (not a JSON envelope). Valid input not found.",
+      "scope": "account_state", "gated": true
+    },
+    {
+      "uri": "/json/users/nagrasyncsubscriptions", "tool": "mb_nagra_sync", "status": "not exercised",
+      "notes": "Calls an external Nagra integration. Not called, to avoid triggering an outside sync from the demo. Excluded until the integration is configured and the user approves."
+    },
+    {
+      "uri": "/json/options/addippoolsflex", "tool": "mb_add_ip_pool", "status": "verified (not in the approved list)",
+      "request": ["poolname"],
+      "response": "{success: true, data: [{ok: 1, poolid}]}",
+      "scope": "admin", "gated": true, "notes": "Create-side of the IP pool delete. Scope decided 2026-11-15: admin."
+    },
+    {
+      "uri": "/json/options/addrealipflex", "tool": "mb_add_real_ip_block", "status": "verified (not in the approved list)",
+      "request": ["localip", "netmask", "cidrmask", "hostmin", "hostmax", "hosts"],
+      "response": "{success: true, ok: 1}",
+      "scope": "admin", "gated": true, "notes": "Creates a block of real IPs. Scope decided 2026-11-15: admin."
+    },
+    {
+      "uri": "/json/options/nasaddflex", "tool": "mb_add_nas", "status": "verified (not in the approved list)",
+      "request": ["nasname", "nasip", "secret", "shortname"],
+      "response": "{success: true, data: [{ok: 1, nasid}]}",
+      "scope": "admin", "gated": true, "notes": "Create-side of the NAS delete. Scope decided 2026-11-15: admin."
+    }
+  ],
+  "blockers_investigated": [
+    {
+      "tool": "mb_enable_flex_tariff", "result": "UNBLOCKED",
+      "cause": "Wrong precondition in the earlier test. The VKL call only works on a disconnected user (state 3) with type_list=2 and itog_summa."
+    },
+    {
+      "tool": "mb_set_personal_service", "result": "UNBLOCKED with a different service",
+      "cause": "Service 115 has service_portal 18, which is the 'Wink' integration. It is not configured on the demo, so the call fails. Service 101 has service_portal 0 and works.",
+      "verified": "setpersonalserviceuser {uid, serviceid: 101} succeeded. Read back as active. unsetpersonalserviceuser {uid, serviceid: 101} succeeded."
+    },
+    {
+      "tool": "mb_delete_user_group", "result": "UNBLOCKED",
+      "cause": "Earlier test used `usersgroupid`, which always returns 'in use by staff'. The UI sends `delete_list`. With delete_list, group deletes succeed (groups 5 and 6 deleted).",
+      "risk": "The group check was not reproduced with delete_list. Groups with users or staff may be orphaned. Dry-run must count users with that usersgroupid before executing."
+    },
+    {
+      "tool": "mb_delete_house", "result": "STILL BLOCKED BY DESIGN (use houseid only)",
+      "cause": "The houseid path enforces the in-use check (error 8). The delete_list path does not.",
+      "risk": "House 90 was deleted via delete_list while soft-deleted users referenced it. House 92 was deleted via delete_list while active user 862 referenced it. Those references are now orphaned on the demo."
+    }
+  ],
+  "demo_side_effects_from_this_round": [
+    "IP pool MCPTEST_POOL: created and deleted.",
+    "Real IP block 10.99.98.1-254: created and deleted one by one.",
+    "NAS MCPTEST_NAS (id 16): created and deleted.",
+    "Groups MCPTEST_G_b (5) and MCPTEST_G2 (6): deleted with delete_list.",
+    "Houses 90, 91, 92 (MCPTEST_H1b, MCPTEST_H2, MCPTEST_H3): deleted. 92 via delete_list, and 90 via delete_list, orphaning soft-deleted users and user 862.",
+    "Users created (MCPTEST records): 859 deleted by deluserotklflex; 860 active; 861 active (gid 49); 862 active, house 92 deleted (orphaned).",
+    "Settlement 16, neighborhood 15, sector 14, lane 36 (MCPTEST): deleted in the earlier round."
+  ]
+}

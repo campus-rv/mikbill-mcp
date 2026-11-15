@@ -1,0 +1,18 @@
+{
+  "tool": "mb_bulk_enable_internet",
+  "upstream_method": null,
+  "uri": "/json/users/enableinternetmulti",
+  "status": "source_confirmed",
+  "captured_from": "admin UI bundle: Confirm window ('enable internet'), not submitted",
+  "captured_at": "2026-11-15",
+  "request": {
+    "encoding": "application/x-www-form-urlencoded",
+    "method": "POST",
+    "fields": [
+      {"name": "set_users_list", "type": "string", "required": true, "example": "1,2,3", "note": "Comma-joined useruid values."}
+    ]
+  },
+  "response": {"envelope": {"success": "boolean"}},
+  "scope_proposal": "account_state (restores service)",
+  "notes": ["Field `message` appears in the UI source with unknown role."]
+}

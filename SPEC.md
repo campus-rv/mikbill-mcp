@@ -1,0 +1,309 @@
+# Specification: Mikbill Admin MCP Server
+
+Status: v1 design, verified against the public Mikbill demo (2026-11-15). Implementation not started. This file is the source of truth for scope. Per-endpoint evidence is in `fixtures/`, and the code table is `src/mb_mcp/endpoints.py`.
+
+## Context
+
+AI agents need to work with a Mikbill billing instance through MCP: subscriber lookup and history, provisioning dictionaries, routine edits, and (gated) billing and account-state changes. The upstream PHP class `kagatan/mb-admin-api` wraps 53 public methods, but its parameter docs are sparse and several wrappers do not work as written. This spec defines a Python MCP server that exposes the Mikbill admin endpoints with explicit scopes, dry-run, and approval for every unsafe action.
+
+Decisions:
+- Language: Python, official `mcp` SDK, `httpx`.
+- Transport: stdio and Streamable HTTP.
+- Parameter schemas: from the live admin UI (request field names, verified responses on the demo).
+- Every change to billing, account state, privileges, or any delete is gated: opt-in scope, dry-run, approval token, reason.
+
+## Scopes
+
+A tool is registered only when its scope is granted. Gated tools always go through dry-run and approval.
+
+| Scope | Default | Gated | Tools | Contents |
+|---|---|---|---|---|
+| `read` | on | no | 19 | Lookups, histories, dictionaries, system options |
+| `write` | on | no | 20 | Create and edit: users, devices, dictionaries, switches; kick user |
+| `account_state` | off | yes | 22 | Freeze; bulk enable, disable, unfreeze, enable internet; disconnect; every delete (users, houses, switches, switch types, sticky notes, device types, settlements, neighborhoods, lanes, sectors, IP pools, real IPs, NAS) |
+| `finance` | off | yes | 13 | Payments (single, bulk); tariff change; flex tariff (reactivate); packet add, edit, delete; personal service set and unset; credit remove (single, bulk); credit issue (bulk); voucher use |
+| `admin` | off | yes | 6 | User group create, update, delete; IP pool, real IP block, and NAS create |
+
+Total: 80 tools. Blocked and denied tools are registered (see Blocked and denied).
+
+**Delete rule:** every delete is gated, regardless of entity type.
+
+**Not in v1:**
+- `consoleMe` and `/extjs/options/consolecommands` (console execution)
+- `auth`, `authBilling` (client internals)
+- Discovered endpoints not yet verified or not decided: `delippoolsipflex`, `nagrasyncsubscriptions`, IP pool, real IP and NAS create endpoints (see Discovered endpoints)
+
+## Tool list
+
+### read (19)
+
+| Tool | Upstream | URI |
+|---|---|---|
+| `mb_check_session` | checkLoggedIn | `/json/users/getcountfl` |
+| `mb_count_users` | getCountUsers | `/json/users/getcountfl` |
+| `mb_search_users` | getUsers | `/json/users/searchflex` |
+| `mb_get_user` | getUser | `/json/users/getuserdatambp` |
+| `mb_get_user_payment_history` | getUsersHistoryPayments | `/json/users/statpaymfl` |
+| `mb_get_user_short_history` | getUserShortHistory | `/extjs/users/usershorthistory` |
+| `mb_get_user_canvas_stat` | getUserCanvasStat | `/json/users/getusercanvasstat` |
+| `mb_get_user_devices` | getUserDevicesByUid | `/json/users/getuserdevicesbyuid` (record fields not captured) |
+| `mb_list_dev_types` | getDevTypesList | `/json/users/getdevtypesfulllist` |
+| `mb_list_settlements` | getSettlementsList | `/json/users/settlementslist` |
+| `mb_list_neighborhoods` | getNeighborhoodsList | `/json/users/neighborhoodslist` |
+| `mb_list_lanes` | getLanesList | `/json/users/getlanesneighborhoods` |
+| `mb_list_houses` | getUsersHousesFullList | `/json/users/housesfulllist` |
+| `mb_list_sectors` | getSectorList | `/json/users/sectorlistflex` |
+| `mb_list_switches` | getSwitchList | `/json/users/switchlistflex` |
+| `mb_list_switch_types` | getSwitchTypeList | `/json/options/switchtypelistflex` |
+| `mb_list_packets` | getPacketsList | `/json/tarif/gettarifsfl` |
+| `mb_list_user_groups` | getUsersGroupsList | `/json/options/usersgroupslist` |
+| `mb_get_system_options` | getSystemOptions | `/extjs/users/getsystemoptions` |
+
+### write (20, not gated)
+
+| Tool | Upstream | URI |
+|---|---|---|
+| `mb_create_user` | createAbonent | `/extjs/users/createabonent` |
+| `mb_update_user` | updateUser | `/extjs/users/updateuser` |
+| `mb_kick_user` | userKickOnline | `/json/users/userkickfl` |
+| `mb_create_sticky_note` | createStickyNotesUser | `/extjs/users/createstickynotesuser` (`uid`, not `useruid`) |
+| `mb_add_user_device` | addUserDev | `/extjs/users/adduserdev` |
+| `mb_add_dev_type` | addDevType | `/json/users/adddevtype` |
+| `mb_add_settlement` / `mb_edit_settlement` | addSettlement / editSettlement | `/json/options/addsettlement` / `editsettlement` |
+| `mb_add_neighborhood` / `mb_edit_neighborhood` | addNeighborhood / editNeighborhood | `/json/options/addneighborhood` / `editneighborhood` |
+| `mb_add_house` / `mb_edit_house` | addHouse / editHouse | `/json/options/addhouseflex` / `edithouselaneflex` |
+| `mb_add_lane` / `mb_edit_lane` | addLane / editLane | `/json/options/addlanesflex` / `editlaneflex` |
+| `mb_add_sector` / `mb_edit_sector` | addSector / editSector | `/json/options/sectoraddflex` / `sectoreditflex` |
+| `mb_edit_switch` | editSwitch | `/json/options/editswitchflex` |
+| `mb_add_switch` | addSwitch | `/json/options/addswitchflex` (works with params) |
+| `mb_add_switch_type` | addSwitchType | `/json/options/addswitchtypeflex` (works with params) |
+| `mb_edit_switch_type` | editSwitchType | `/json/options/editswithchtypeflex` (upstream spelling kept) |
+
+### account_state (22, gated)
+
+| Tool | Upstream | URI | Param / note |
+|---|---|---|---|
+| `mb_freeze_user` | setFreezeUser | `/json/users/dofreezeuserfl` | uid, freeze fields |
+| `mb_bulk_enable_users` | none | `/json/users/enableusersmulti` | `set_users_list` |
+| `mb_bulk_disable_users` | none | `/json/users/disableusersmulti` | `set_users_list` |
+| `mb_bulk_unfreeze_users` | none | `/json/users/unfreezeusersmulti` | `set_users_list` |
+| `mb_bulk_enable_internet` | none | `/json/users/enableinternetmulti` | `set_users_list` |
+| `mb_disconnect_user` | none | `/json/users/otkluserflex` | uid, cena_freeze. Sets state 3 |
+| `mb_delete_user` | none | `/json/users/deluserflex` | uid. **Soft delete** |
+| `mb_bulk_delete_users` | none | `/json/users/deleteusersmulti` | `set_users_list`. **Soft delete** |
+| `mb_delete_disconnected_user` | none | `/json/users/deluserotklflex` | uid, gid, itog_summa, type_list=2. **Soft delete** |
+| `mb_delete_user_full` | none | `/json/users/delfulluserflex` | Denied on the demo |
+| `mb_delete_house` | deleteHouse | `/json/options/delhouseflex` | `houseid` only. Blocked by design (see below) |
+| `mb_delete_switch` | delSwitch | `/json/options/delswitchflex` | swid |
+| `mb_delete_switch_type` | delSwitchType | `/json/options/delswitchtypeflex` | swtypeid |
+| `mb_delete_sticky_note` | none | `/extjs/users/deletestickynotesuser` | id |
+| `mb_delete_dev_type` | none | `/json/users/deletedevtype` | devtypeid |
+| `mb_delete_settlement` | none | `/json/options/deletesettlement` | settlementid. Check first: `checkdeletesettlement` |
+| `mb_delete_neighborhood` | none | `/json/options/deleteneighborhood` | neighborhoodid |
+| `mb_delete_lane` | none | `/json/options/dellaneflex` | laneid |
+| `mb_delete_sector` | none | `/json/options/sectordelflex` | sectorid |
+| `mb_delete_ip_pool` | none | `/json/options/delippoolsflex` | poolname |
+| `mb_delete_real_ip` | none | `/json/options/delrealipflex` | real (one address per call) |
+| `mb_delete_nas` | none | `/json/options/nasserverdelflex` | nasid |
+
+### finance (13, gated)
+
+| Tool | Upstream | URI | Note |
+|---|---|---|---|
+| `mb_create_payment` | payment | `/json/users/paymentdoflex` | Moves money. uid, bughtypeid, deposit, prim2 |
+| `mb_bulk_payment` | none | `/json/users/paymentdomulti` | Moves money on every listed account |
+| `mb_change_tariff` | doChangeTarifFlex | `/json/users/dochangetarifflex` | uid, gid |
+| `mb_enable_flex_tariff` | vklUserFlex | `/json/users/vkluserflex` | Reactivates a disconnected user (state 3). Needs uid, gid, itog_summa, type_list=2 |
+| `mb_add_packet` | addPacket | `/json/tarif/addtarifflex` | tarif (name) |
+| `mb_edit_packet` | editPacket | `/json/tarif/updatetariffl` | gid, packet, alias. Other form fields exist |
+| `mb_delete_packet` | none | `/json/tarif/deltarifflex` | gid. Check first: `delchecktarifflex` |
+| `mb_set_personal_service` | setPersonalServiceUser | `/json/users/setpersonalserviceuser` | uid, serviceid. Service must have a configured portal |
+| `mb_unset_personal_service` | none | `/json/users/unsetpersonalserviceuser` | uid, serviceid (activate, code optional) |
+| `mb_remove_credit_single` | none | `/json/users/creditnullfl` | uid |
+| `mb_bulk_remove_credit` | none | `/json/users/creditnullmulti` | `set_users_list` |
+| `mb_bulk_issue_credit` | none | `/json/users/creditmulti` | `set_users_list`, `credit` |
+| `mb_use_voucher` | none | `/json/users/usevaucherfl` | uid, code. A valid code adds balance |
+
+### admin (3, gated)
+
+| Tool | Upstream | URI | Note |
+|---|---|---|---|
+| `mb_create_user_group` | createUsersGroup | `/json/options/setusersgroup` | usersgroupname, share, description |
+| `mb_update_user_group` | none | `/json/options/setusersgroup` | With `usersgroupid` it updates |
+| `mb_delete_user_group` | none | `/json/options/deleteusersgroup` | **Use `delete_list`**. `usersgroupid` always returns "in use" |
+| `mb_add_ip_pool` | none | `/json/options/addippoolsflex` | poolname. Verified |
+| `mb_add_real_ip_block` | none | `/json/options/addrealipflex` | localip, netmask, cidrmask, hostmin, hostmax, hosts. Verified |
+| `mb_add_nas` | none | `/json/options/nasaddflex` | nasname, nasip, secret, shortname. Verified |
+
+## Delete parameters
+
+The upstream UI uses two different parameter styles for deletes. They do not behave the same:
+
+- `delete_list` is what the UI's generic delete form sends. For user groups it works, and it skips the in-use check on houses.
+- The id field (`houseid`, `swid`, and so on) takes the checked path. For houses, it returns error 8 when users still reference the house.
+
+Rules for the MCP:
+- `mb_delete_house` sends `houseid` only. Never `delete_list`.
+- `mb_delete_user_group` sends `delete_list`. Dry-run must count users with that `usersgroupid` first, because the in-use check was not reproduced with `delete_list`.
+- Every delete dry-run runs the check endpoint where one exists and lists what would be affected.
+
+## Soft delete
+
+- `deluserflex`, `deleteusersmulti`, and `deluserotklflex` mark the account as deleted: state `4`, `deletedtable` `1`. The row stays in the database.
+- Tool descriptions say "soft delete" and name the effect. The output includes the state read back after the call.
+- Dry-run shows the target uid(s), current state, and count. Bulk dry-run lists every uid.
+- Restoration is not verified. Before a restore tool is added, check how the UI restores an account. `mb_restore_user` is not in v1.
+
+## Blocked and denied
+
+Blocked and denied tools are registered in their scope. Calling one returns the mapped error. Dry-run still runs any check endpoint and reports the blocker without executing.
+
+| Tool | Status | Cause and fix |
+|---|---|---|
+| `mb_delete_house` | Blocked by design | `houseid` returns error 8 when users reference the house. This is the correct protection. The bypass (`delete_list`) must not be used. Demo houses 90 and 92 were deleted via the bypass; their references are orphaned (see fixtures) |
+| `mb_delete_user_full` | Denied | "Denied by settings" on the demo. Maps to `denied_by_settings`. Registered; returns this code where the installation forbids it |
+| `mb_set_personal_service` | Blocked for serviceid 115 only | 115 has service portal 18 (Wink), which is not configured on the demo. serviceid 101 (portal 0) works and is verified |
+
+Previously blocked, now resolved:
+- `mb_enable_flex_tariff`: the earlier failure was a wrong precondition. It works on a disconnected user with `type_list=2` and `itog_summa`.
+- `mb_delete_user_group`: the earlier failure used `usersgroupid`. `delete_list` works (verified on two groups).
+
+## Error mapping
+
+- `success: false` with "Denied by settings" → `denied_by_settings`
+- error 8 on a delete → `conflict` (in use)
+- error 2 with `DUPLICATE_LOGIN` → `precondition_failed` (on `vkluserflex`, the user is not disconnected)
+- error 27 → `precondition_failed` (service portal not configured)
+- error 1 with "Не указан обязательный параметр" → `validation` (missing required parameter, with the key in `errorKey`)
+- error 1202 → `upstream_error` (generic, logged on the server)
+- `success: false` with `error: 1403` / `UnAuth` → `auth_failed` (re-login once, then error)
+- Missing `success` key, empty body, or HTTP non-200 → `upstream_error`
+
+## Gated-tool mechanics
+
+- Dry-run is the default. It returns the exact request, a target summary (uids, count, total amount for payments, check results for deletes), and a one-time `approval_token` valid 5 minutes, bound to a hash of the params.
+- A second call with `dry_run: false` and the token executes the request. The token is single use.
+- `reason` is required on every gated call and written to the audit log.
+- Bulk tools: dry-run lists every uid. Payment tools: dry-run shows the total amount.
+
+## Authentication and session
+
+- Configuration from env vars only: `MB_BASE_URL`, `MB_LOGIN`, `MB_PASSWORD` (plaintext; MD5-hashed in memory, as the protocol requires), `MB_SCOPES`, `MB_CA_BUNDLE`, `MB_TIMEOUT_CONNECT=5`, `MB_TIMEOUT_READ=30`, `MB_MAX_BULK=50` (cap on uids per bulk call), `MB_AUDIT_FILE` (optional JSON-lines audit log).
+- One `httpx.AsyncClient` with a cookie jar holds the session. Login runs lazily.
+- The session cookie is sufficient. Calls without it return HTTP 200 with `success: false`, error 1403. The JWT header is not needed by the UI and is not sent.
+- On auth failure, re-login once and retry once. A second failure is an error.
+- TLS verification is on by default. `MB_CA_BUNDLE` supports private CAs. Disabling needs `MB_INSECURE_TLS=1` and logs a warning at startup.
+- The MCP acts as one Mikbill admin account. Use a dedicated, least-privileged account. Scopes limit the MCP; they do not replace Mikbill's permission model.
+
+## Transport
+
+- **stdio** (default): `python -m mb_mcp`, env from the MCP client config.
+- **Streamable HTTP**: `python -m mb_mcp --http --host 127.0.0.1 --port 8765`. Binds to localhost by default. Remote access goes through a TLS reverse proxy.
+- HTTP requires `Authorization: Bearer <token>`. Each token has its own scope list. Config stores SHA-256 hashes. Missing or invalid token: 401. Disallowed `Origin`: 403. A token without a tool's scope does not see the tool in `tools/list`, and calling it returns a `scope_denied` tool error (not an HTTP 403). Tokens are configured with `MB_HTTP_TOKENS`, a JSON list of `{id, sha256, scopes}`; `MB_ALLOWED_ORIGINS` lists allowed origins.
+- Validate the `Origin` header and reject unknown origins.
+- HTTP mode shares one Mikbill session across clients. Scope checks run per token before any upstream call.
+
+## Tool contract
+
+- Names: `mb_` prefix, snake_case, verb first.
+- Input: JSON Schema per tool, from the fixtures. Undocumented fields are rejected.
+- Output envelope:
+  ```json
+  {"ok": true, "status": 200, "data": {...}}
+  {"ok": false, "error": {"code": "upstream_error|auth_failed|timeout|validation|scope_denied|approval_required|conflict|precondition_failed|denied_by_settings", "message": "..."}}
+  ```
+- `mb_search_users` and `mb_get_user_payment_history` require at least one filter (`uid`, or `from_date`/`to_date`).
+- Tool descriptions are in English. Mikbill field names keep their original spelling.
+
+## Redaction and logging
+
+- User records return plaintext credentials: `password`, `router_pass`, `router_wep_pass`, and `pass` in history `postauth` rows. Redact these by default. Optional reveal needs its own scope and is not in v1.
+- Personal fields (phone, passport, INN, address, email, date of birth) are redacted from logged bodies. Field allowlists apply to reads.
+- Logs never contain the password, session cookies, JWT, bearer tokens, or the MD5 hash.
+- Audit entries for writes, gated calls, and auth failures: timestamp, tool, scope, token id, target uid or id, `reason`, outcome.
+
+## Discovered endpoints
+
+Found in the admin UI and verified on MCPTEST records (details in `fixtures/discovered_and_blockers.json`):
+
+| Endpoint | Tool | Result | Scope |
+|---|---|---|---|
+| `otkluserflex` | `mb_disconnect_user` | Verified | account_state |
+| `deluserotklflex` | `mb_delete_disconnected_user` | Verified (soft delete) | account_state |
+| `vkluserflex` | `mb_enable_flex_tariff` | Verified (was blocked) | finance |
+| `unsetpersonalserviceuser` | `mb_unset_personal_service` | Verified | finance |
+| `usevaucherfl` | `mb_use_voucher` | Wrong-code path verified. Valid-code path not run | finance |
+| `delippoolsflex` | `mb_delete_ip_pool` | Verified | account_state |
+| `delrealipflex` | `mb_delete_real_ip` | Verified | account_state |
+| `nasserverdelflex` | `mb_delete_nas` | Verified | account_state |
+| `addippoolsflex` | `mb_add_ip_pool` | Verified | admin |
+| `addrealipflex` | `mb_add_real_ip_block` | Verified | admin |
+| `nasaddflex` | `mb_add_nas` | Verified | admin |
+
+Not in v1 yet:
+- `delippoolsipflex`: returned `{}` for an invalid input. Needs valid input before it can be verified.
+- `nagrasyncsubscriptions`: calls an external Nagra integration. Not called from the demo.
+
+## Parameter capture and fixtures
+
+- `fixtures/writes_verified.json`: request fields, responses, and errors for each write tool run on the demo.
+- `fixtures/discovered_and_blockers.json`: discovered endpoints, blocker investigations, and demo side effects.
+- `fixtures/<method>.json`: read endpoints from the UI.
+- `fixtures/*Multi.json`, `fixtures/delUserFlex.json`, `fixtures/delFullUserFlex.json`: bulk and delete endpoints. Their status fields are stale; see `writes_verified.json`.
+- `fixtures/_source_hints.json`: field names from UI code, unverified. Superseded where verified fixtures exist.
+- `fixtures/index.json`: status per tool, blocked and denied list, cleanup leftovers.
+
+Fixtures store field names, types, and synthetic examples. No real personal data. HAR files stay out of git.
+
+## Demo side effects and leftovers
+
+Verification left records on the demo at the user's request, including:
+- Soft-deleted or disconnected MCPTEST subscribers.
+- Active MCPTEST subscribers (uids 860, 861, 862).
+- Two houses deleted via the `delete_list` bypass. Subscribers still reference them (orphaned): soft-deleted users with house 90, and user 862 with house 92.
+
+See `fixtures/index.json` (`cleanup_leftovers`) and `fixtures/discovered_and_blockers.json` (`demo_side_effects_from_this_round`). Contract tests reuse the MCPTEST naming and should not touch other demo data.
+
+## Project layout
+
+Location: `C:\Users\sasha\git\campus\mikbill-mcp\`. `git init` happens when implementation starts.
+
+```
+mikbill-mcp/
+  pyproject.toml
+  SPEC.md
+  README.md
+  .gitignore
+  fixtures/
+  src/mb_mcp/
+    __init__.py
+    __main__.py          # CLI: stdio or --http (stub)
+    endpoints.py         # endpoint table: 80 tools, scope, gated, status (done)
+    config.py            # env parsing, scopes, token hashes (planned)
+    client.py            # httpx session, login, re-login, normalize (planned)
+    server.py            # FastMCP app, registers tools by scope (planned)
+    gating.py            # dry-run and approval tokens (planned)
+    audit.py             # audit log, redaction (planned)
+    http_auth.py         # bearer and Origin checks (planned)
+  tests/
+    unit/                # respx-mocked upstream (planned)
+    contract/            # opt-in, demo or own test instance only (planned)
+```
+
+## Verification
+
+1. **Unit tests** (`pytest`, `respx`): login and MD5 hashing; one re-login on failure; `success: false` mapping; each error code in the mapping table, using recorded responses from the fixtures; scope registration (counts per scope: 19, 20, 22, 13, 6); dry-run makes no upstream POST; approval token single use and bound to params; bulk dry-run lists every uid; missing `reason` rejected; delete tools use the parameter listed in this spec; `mb_delete_house` never sends `delete_list`; bearer and Origin checks; redaction.
+2. **Contract tests** (opt-in; demo or own test instance only, MCPTEST records only): the verified sequence through the MCP. Soft delete leaves state 4. Blocked tools return their mapped codes.
+3. **MCP inspector:** `npx @modelcontextprotocol/inspector python -m mb_mcp` lists tools per scope.
+4. **Client config check:** add to Claude Code or Claude Desktop with env vars; search a test user by `uid`.
+5. **HTTP mode:** no token gives 401; read-only token calling `mb_create_user` gives 403; gated call without `reason` is rejected.
+6. **Security:** TLS verification on by default; no tool in any scope wraps console execution.
+
+## Assumptions
+
+1. Every delete is gated, including reference data. Confirmed by the user.
+2. `mb_delete_user_full` stays registered and returns `denied_by_settings` where denied. Confirmed by the user.
+3. Discovered endpoints are included after verification. Confirmed by the user. Pending ones are listed above.
+4. Packet catalog edits, personal service, voucher use, and user-group create/update are gated because they change billing or privileges.
+5. Upstream is proprietary. Confirm before any derived code ships.
+6. The demo may reset or reject some writes. Endpoints it cannot exercise need a check on a private test instance.
