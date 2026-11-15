@@ -79,6 +79,10 @@ def error_from_envelope(env: dict[str, Any], *, status: int | None = 200) -> Mik
         return MikbillError("validation", f"missing required parameter: {key or text}", status=status, upstream=env)
     if err == 8:
         return MikbillError("conflict", "in use: the object is still referenced (error 8)", status=status, upstream=env)
+    if err == 3:
+        # Seen on user-group delete: "group is used by subscribers". The text is localized, the code is not.
+        return MikbillError("conflict", text or "in use: still referenced by other records (error 3)",
+                            status=status, upstream=env)
     if err == 1202:
         return MikbillError("upstream_error", "Mikbill reported an internal error (1202); see its general log",
                             status=status, upstream=env)

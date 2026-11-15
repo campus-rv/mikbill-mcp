@@ -30,4 +30,5 @@ packages = ["src/mb_mcp"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+markers = ["contract: live tests that write to a real Mikbill (opt-in, see tests/contract/test_demo.py)"]
 pythonpath = ["src"]

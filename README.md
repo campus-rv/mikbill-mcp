@@ -14,6 +14,20 @@ python -m venv .venv
 
 `python -m mb_mcp --list-endpoints` prints the tool table without any network access.
 
+## Live contract tests (opt-in, write to the target)
+
+`tests/contract/test_demo.py` runs the verified sequence through the runtime against the public Mikbill demo: reads, reference data CRUD, a user's life cycle (payments, credit, freeze, disable, disconnect, reactivate, soft delete), catalogs, IP pool, real IPs, NAS, switches, groups. They are skipped unless you opt in, and they refuse any host not in `MB_CONTRACT_ALLOWED_HOSTS` (default `admin.mikbill.pro`):
+
+```powershell
+$env:MB_CONTRACT = "1"
+$env:MB_CONTRACT_CONFIRM = "I_ACCEPT_WRITES_ON_DEMO"
+$env:MB_BASE_URL = "https://admin.mikbill.pro"
+$env:MB_LOGIN = "<demo login>"; $env:MB_PASSWORD = "<demo password>"
+.\.venv\Scripts\python -m pytest tests/contract -v
+```
+
+All records are named `MCPTEST_<run id>`. Mikbill soft-deletes users, so each run leaves about four soft-deleted `mcpt...` users on the target (users are created in an existing house; no house is deleted while users reference it). If cleanup fails, the fixture prints the leftovers. Optional overrides for other installations: `MB_CONTRACT_SECTOR_ID`, `MB_CONTRACT_GID`, `MB_CONTRACT_VKL_GID`, `MB_CONTRACT_SERVICE_ID`.
+
 ## Configuration
 
 Environment variables only. Never commit them.
@@ -73,5 +87,5 @@ Endpoint: `http://127.0.0.1:8765/mcp` with `Authorization: Bearer <token>`. Bind
 ## Status
 
 - Implemented: client, error mapping, gating, redaction, audit, runtime, stdio and HTTP servers. 105 tests pass, including an in-memory MCP session and a real HTTP round trip.
-- Not yet exercised against a live Mikbill from this code. The endpoint behaviour comes from manual runs on the public demo, recorded in `fixtures/`.
+- The live contract suite (`tests/contract`, 7 tests) passes against the public Mikbill demo. It calls 76 of the 80 tools. Not covered live: `mb_get_user_short_history`, `mb_get_user_canvas_stat`, `mb_get_user_devices`, `mb_add_user_device`. Some paths are only partly covered: `mb_use_voucher` is tested with a wrong code only, and `mb_set_personal_service` only on a service without a portal.
 - Open items are listed in SPEC.md ("Blocked and denied", "Discovered endpoints").

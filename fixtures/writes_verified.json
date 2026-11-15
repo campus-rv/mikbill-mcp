@@ -262,7 +262,7 @@
     "mb_enable_flex_tariff": "UNBLOCKED. Works on a disconnected user with type_list=2 and itog_summa.",
     "mb_set_personal_service": "UNBLOCKED with serviceid 101 (portal 0). serviceid 115 still fails (Wink portal 18 not configured).",
     "mb_delete_user_group": "UNBLOCKED with delete_list. usersgroupid always returns 'in use'.",
-    "mb_delete_house": "Still blocked by design via houseid. delete_list bypasses the check and must not be used."
+    "mb_delete_house": "Blocked by design via houseid when users reference the house (error 8). A house with no users deletes fine. delete_list reports success but deletes nothing (corrected 2026-11-15)."
   },
   "not_verified": [
     "mb_update_user_group verified; mb_delete_user_group see superseded above",

@@ -36,7 +36,7 @@ CHECKS: dict[str, tuple[str, tuple[str, ...]]] = {
 
 WARNINGS: dict[str, str] = {
     "mb_delete_house": "Sent as houseid so Mikbill refuses (error 8) while users reference the house. The delete_list "
-                       "form skips that check and is never used.",
+                       "form reports success without deleting and is never used.",
     "mb_delete_user_group": "The number of users in the group is not checked: no verified filter exists. Deleting a "
                             "group that users reference may orphan them.",
     "mb_delete_user": "Soft delete: the account stays in the database with state 4 and deletedtable 1.",
@@ -47,6 +47,8 @@ WARNINGS: dict[str, str] = {
     "mb_set_personal_service": "The service must have a configured portal. Services on the Wink portal (18) fail "
                                "unless that integration is set up.",
     "mb_use_voucher": "A valid voucher code adds its nominal to the balance.",
+    "mb_change_tariff": "The change is scheduled, not applied: the user's gid reads 0 until it takes effect, and "
+                        "personal-service calls fail with precondition_failed in the meantime.",
 }
 
 

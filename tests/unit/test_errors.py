@@ -18,6 +18,7 @@ def test_success_is_none():
     ({"success": False, "error": 27, "errortext": "service_portal for subscription=115 not found"}, "precondition_failed"),
     ({"success": False, "error": 1, "errortext": "Не указан обязательный параметр: nasid", "errorKey": "nasid"}, "validation"),
     ({"success": False, "error": 8}, "conflict"),
+    ({"success": False, "error": 3, "errortext": "Невозможно удалить, группа используется абонентами"}, "conflict"),
     ({"success": False, "error": 1202, "errortext": "Что то пошло не так"}, "upstream_error"),
     ({"success": False, "error": 99}, "upstream_error"),
     ({}, "upstream_error"),

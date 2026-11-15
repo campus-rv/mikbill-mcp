@@ -139,7 +139,7 @@ Total: 80 tools. Blocked and denied tools are registered (see Blocked and denied
 
 The upstream UI uses two different parameter styles for deletes. They do not behave the same:
 
-- `delete_list` is what the UI's generic delete form sends. For user groups it works, and it skips the in-use check on houses.
+- `delete_list` is what the UI's generic delete form sends. For user groups it works. For houses it returns `success: true` but deletes nothing (houses 90 and 92 were still listed afterwards), so it is a silent no-op there. An earlier note in this repo called it an in-use-check bypass; that was wrong.
 - The id field (`houseid`, `swid`, and so on) takes the checked path. For houses, it returns error 8 when users still reference the house.
 
 Rules for the MCP:
@@ -160,18 +160,19 @@ Blocked and denied tools are registered in their scope. Calling one returns the 
 
 | Tool | Status | Cause and fix |
 |---|---|---|
-| `mb_delete_house` | Blocked by design | `houseid` returns error 8 when users reference the house. This is the correct protection. The bypass (`delete_list`) must not be used. Demo houses 90 and 92 were deleted via the bypass; their references are orphaned (see fixtures) |
+| `mb_delete_house` | Blocked by design | `houseid` returns error 8 when users reference the house. This is the correct protection. Do not use `delete_list` for houses: it reports success and deletes nothing. Demo houses 90 (`MCPTEST_H1b`) and 92 (`MCPTEST_H3`) remain because users reference them. A house with no users deletes fine via `houseid` |
 | `mb_delete_user_full` | Denied | "Denied by settings" on the demo. Maps to `denied_by_settings`. Registered; returns this code where the installation forbids it |
-| `mb_set_personal_service` | Blocked for serviceid 115 only | 115 has service portal 18 (Wink), which is not configured on the demo. serviceid 101 (portal 0) works and is verified |
+| `mb_set_personal_service` | Blocked for serviceid 115 only | 115 has service portal 18 (Wink), which is not configured on the demo. serviceid 101 (portal 0) works and is verified. It also fails with the same "service_portal ... not found" message after `mb_change_tariff`: the change is scheduled, so the user's gid reads 0 until it takes effect (found by the contract run) |
 
 Previously blocked, now resolved:
 - `mb_enable_flex_tariff`: the earlier failure was a wrong precondition. It works on a disconnected user with `type_list=2` and `itog_summa`.
-- `mb_delete_user_group`: the earlier failure used `usersgroupid`. `delete_list` works (verified on two groups).
+- `mb_delete_user_group`: the earlier failure used `usersgroupid`. `delete_list` works (verified on several groups). Mikbill reuses group ids, and an old deleted subscriber can still reference a reused id (demo group 8 and subscriber 233): the delete then returns error 3, mapped to `conflict`.
 
 ## Error mapping
 
 - `success: false` with "Denied by settings" → `denied_by_settings`
 - error 8 on a delete → `conflict` (in use)
+- error 3 → `conflict` (seen on user-group delete: "used by subscribers"; the message text is localized, the code is not)
 - error 2 with `DUPLICATE_LOGIN` → `precondition_failed` (on `vkluserflex`, the user is not disconnected)
 - error 27 → `precondition_failed` (service portal not configured)
 - error 1 with "Не указан обязательный параметр" → `validation` (missing required parameter, with the key in `errorKey`)
@@ -260,7 +261,7 @@ Fixtures store field names, types, and synthetic examples. No real personal data
 Verification left records on the demo at the user's request, including:
 - Soft-deleted or disconnected MCPTEST subscribers.
 - Active MCPTEST subscribers (uids 860, 861, 862).
-- Two houses deleted via the `delete_list` bypass. Subscribers still reference them (orphaned): soft-deleted users with house 90, and user 862 with house 92.
+- Houses `MCPTEST_H1b` (90) and `MCPTEST_H3` (92) still exist, referenced by MCPTEST users. Nothing is orphaned.
 
 See `fixtures/index.json` (`cleanup_leftovers`) and `fixtures/discovered_and_blockers.json` (`demo_side_effects_from_this_round`). Contract tests reuse the MCPTEST naming and should not touch other demo data.
 

@@ -3,7 +3,7 @@
   "target": "https://admin.mikbill.pro (public demo). MCPTEST records only. Approval given by the user for MCPTEST records.",
   "important": {
     "delete_param_name": "Some deletes take `delete_list` (the UI's paramsubmit), others take the id field. Choosing the wrong one changes behaviour. See the house finding.",
-    "house_delete_bypass": "/json/options/delhouseflex with `delete_list` skips the in-use check. With `houseid` it returns error 8 when users reference the house. Test: house 92 was deleted via delete_list while user 862 (mcptest12) still referenced it. The orphaned reference remains on the demo. The MCP must send `houseid` only, never `delete_list`, and must report referencing users in dry-run."
+    "house_delete_delete_list": "CORRECTED 2026-11-15. /json/options/delhouseflex with `delete_list` returns success but deletes nothing: houses 90 and 92 were still listed afterwards (confirmed by the contract run). With `houseid` it returns error 8 when users reference the house and deletes the house otherwise (house 91 was deleted this way). An earlier version of this file called delete_list an in-use-check bypass that orphaned user references. That was wrong; nothing is orphaned. The MCP sends `houseid` only."
   },
   "discovered_endpoints": [
     {
@@ -105,8 +105,8 @@
     },
     {
       "tool": "mb_delete_house", "result": "STILL BLOCKED BY DESIGN (use houseid only)",
-      "cause": "The houseid path enforces the in-use check (error 8). The delete_list path does not.",
-      "risk": "House 90 was deleted via delete_list while soft-deleted users referenced it. House 92 was deleted via delete_list while active user 862 referenced it. Those references are now orphaned on the demo."
+      "cause": "The houseid path enforces the in-use check (error 8). The delete_list path returns success but deletes nothing (CORRECTED: it is not a bypass).",
+      "risk": "None beyond the leftover houses: MCPTEST_H1b (90) and MCPTEST_H3 (92) still exist because users reference them."
     }
   ],
   "demo_side_effects_from_this_round": [
@@ -114,8 +114,8 @@
     "Real IP block 10.99.98.1-254: created and deleted one by one.",
     "NAS MCPTEST_NAS (id 16): created and deleted.",
     "Groups MCPTEST_G_b (5) and MCPTEST_G2 (6): deleted with delete_list.",
-    "Houses 90, 91, 92 (MCPTEST_H1b, MCPTEST_H2, MCPTEST_H3): deleted. 92 via delete_list, and 90 via delete_list, orphaning soft-deleted users and user 862.",
-    "Users created (MCPTEST records): 859 deleted by deluserotklflex; 860 active; 861 active (gid 49); 862 active, house 92 deleted (orphaned).",
+    "Houses: MCPTEST_H2 (91) deleted via houseid. MCPTEST_H1b (90) and MCPTEST_H3 (92) still exist (CORRECTED: delete_list is a no-op, nothing was deleted or orphaned).",
+    "Users created (MCPTEST records): 859 deleted by deluserotklflex; 860 active; 861 active (gid 49); 862 active, in house 92.",
     "Settlement 16, neighborhood 15, sector 14, lane 36 (MCPTEST): deleted in the earlier round."
   ]
 }

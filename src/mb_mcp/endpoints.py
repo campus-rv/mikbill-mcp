@@ -113,7 +113,7 @@ ACCOUNT_STATE: list[Endpoint] = [
              status="denied", note="'Denied by settings' on the demo. Maps to denied_by_settings."),
     Endpoint("mb_delete_house", "deleteHouse", "/json/options/delhouseflex", "account_state", gated=True,
              status="blocked",
-             note="Send houseid only. The delete_list param skips the in-use check. Never use delete_list."),
+             note="Send houseid only. Error 8 means users still reference the house. delete_list reports success but deletes nothing."),
     Endpoint("mb_delete_switch", "delSwitch", "/json/options/delswitchflex", "account_state", gated=True),
     Endpoint("mb_delete_switch_type", "delSwitchType", "/json/options/delswitchtypeflex", "account_state",
              gated=True),
