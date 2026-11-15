@@ -14,6 +14,8 @@ Scope = dict[str, Any]
 Receive = Callable[[], Awaitable[dict[str, Any]]]
 Send = Callable[[dict[str, Any]], Awaitable[None]]
 
+HEALTH_PATH = "/health"
+
 # Set per request by BearerAuthMiddleware. None means "stdio": use the server-level scopes.
 request_scopes: ContextVar[frozenset[str] | None] = ContextVar("mb_request_scopes", default=None)
 request_principal: ContextVar[str] = ContextVar("mb_request_principal", default="stdio")
@@ -32,12 +34,17 @@ def find_token(tokens: tuple[HttpToken, ...], presented: str) -> HttpToken | Non
     return match
 
 
-async def _respond(send: Send, status: int, message: str, headers: list[tuple[bytes, bytes]] | None = None) -> None:
-    body = json.dumps({"error": message}).encode()
+async def _respond_json(send: Send, status: int, payload: dict[str, Any],
+                        headers: list[tuple[bytes, bytes]] | None = None, head: bool = False) -> None:
+    body = json.dumps(payload).encode()
     await send({"type": "http.response.start", "status": status,
                 "headers": [(b"content-type", b"application/json"), (b"content-length", str(len(body)).encode()),
-                            *(headers or [])]})
-    await send({"type": "http.response.body", "body": body})
+                            (b"cache-control", b"no-store"), *(headers or [])]})
+    await send({"type": "http.response.body", "body": b"" if head else body})
+
+
+async def _respond(send: Send, status: int, message: str, headers: list[tuple[bytes, bytes]] | None = None) -> None:
+    await _respond_json(send, status, {"error": message}, headers)
 
 
 class BearerAuthMiddleware:
@@ -54,6 +61,10 @@ class BearerAuthMiddleware:
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":  # lifespan etc.
             await self.app(scope, receive, send)
+            return
+        if scope.get("path") == HEALTH_PATH and scope.get("method", "GET") in ("GET", "HEAD"):
+            # Liveness only: no token, no Origin check, and nothing about the upstream or the configuration
+            await _respond_json(send, 200, {"status": "ok"}, head=scope.get("method") == "HEAD")
             return
         headers = {k.lower(): v for k, v in scope.get("headers", [])}
 

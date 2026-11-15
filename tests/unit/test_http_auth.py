@@ -93,6 +93,43 @@ async def test_origin_header_is_rejected_when_no_origins_are_configured(settings
     assert rec.status == 403
 
 
+async def call_path(settings, path, method="GET", headers=None):
+    rec = Recorder()
+    mw = BearerAuthMiddleware(rec.app, settings)
+    scope = {"type": "http", "path": path, "method": method,
+             "headers": [(k.encode(), v.encode()) for k, v in (headers or {}).items()]}
+    await mw(scope, rec.receive, rec.send)
+    return rec
+
+
+async def test_health_needs_no_token_and_does_not_reach_the_app(settings):
+    rec = await call_path(settings, "/health")
+    assert rec.status == 200 and not rec.inner_called
+    assert json.loads(rec.sent[1]["body"]) == {"status": "ok"}
+
+
+async def test_health_ignores_the_origin_header(settings):
+    rec = await call_path(settings, "/health", headers={"origin": "https://evil.test"})
+    assert rec.status == 200
+
+
+async def test_health_head_has_no_body(settings):
+    rec = await call_path(settings, "/health", method="HEAD")
+    assert rec.status == 200 and rec.sent[1]["body"] == b""
+
+
+async def test_health_only_answers_get_and_head(settings):
+    rec = await call_path(settings, "/health", method="POST")
+    assert rec.status == 401 and not rec.inner_called
+
+
+async def test_other_paths_still_need_a_token(settings):
+    rec = await call_path(settings, "/mcp")
+    assert rec.status == 401
+    rec = await call_path(settings, "/health/extra")
+    assert rec.status == 401
+
+
 async def test_non_http_scopes_pass_through(settings):
     rec = Recorder()
     mw = BearerAuthMiddleware(rec.app, settings)

@@ -21,9 +21,11 @@ def _list_endpoints() -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="mb-mcp", description="Mikbill admin MCP server")
-    parser.add_argument("--http", action="store_true", help="serve Streamable HTTP instead of stdio")
-    parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--transport", choices=("stdio", "http"), default=None,
+                        help="stdio (local MCP client, the default) or http (Streamable HTTP); default: MCP_TRANSPORT")
+    parser.add_argument("--http", action="store_true", help="same as --transport http")
+    parser.add_argument("--host", default=None, help="HTTP bind address (default: MCP_HTTP_HOST or 127.0.0.1)")
+    parser.add_argument("--port", type=int, default=None, help="HTTP port (default: MCP_HTTP_PORT or 8765)")
     parser.add_argument("--list-endpoints", action="store_true", help="print the endpoint table and exit (no network)")
     args = parser.parse_args(argv)
 
@@ -35,8 +37,11 @@ def main(argv: list[str] | None = None) -> int:
 
     logging.basicConfig(level=logging.INFO, stream=sys.stderr)  # stdout is the MCP channel on stdio
     try:
-        settings = Settings.from_env()
-        asyncio.run(run_http(settings, args.host, args.port) if args.http else run_stdio(settings))
+        settings = Settings.from_env(transport="http" if args.http else args.transport)
+        if settings.transport == "http":
+            asyncio.run(run_http(settings, args.host or settings.http_host, args.port or settings.http_port))
+        else:
+            asyncio.run(run_stdio(settings))
     except ConfigError as exc:
         print(f"mb-mcp: configuration error: {exc}", file=sys.stderr)
         return 2

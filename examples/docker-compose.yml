@@ -1,0 +1,35 @@
+# Mikbill MCP server over Streamable HTTP.
+#
+#   cp .env.example .env        # then edit it: MB_*, MCP_HTTP_BEARER_TOKEN
+#   docker compose up -d
+#   curl http://127.0.0.1:8000/health          # {"status":"ok"}
+#
+# MCP endpoint: http://127.0.0.1:8000/mcp with "Authorization: Bearer <MCP_HTTP_BEARER_TOKEN>".
+# The port is published on 127.0.0.1 only. For access from other machines, put a TLS reverse proxy in front
+# (see the proxy comment below) instead of publishing it on 0.0.0.0.
+
+services:
+  mikbill-mcp:
+    # Use a version tag in production, for example :1.0.0. :latest is the newest release, :edge the main branch.
+    image: ${MB_MCP_IMAGE:-ghcr.io/campus-rv/mikbill-mcp:latest}
+    # To build from a checkout instead of pulling: uncomment, and run `docker compose up -d --build`
+    # build:
+    #   context: ..
+    env_file: .env
+    # MCP_TRANSPORT=http, MCP_HTTP_HOST=0.0.0.0 and MCP_HTTP_PORT=8000 are the image defaults.
+    ports:
+      - "127.0.0.1:8000:8000"
+    # Behind a reverse proxy on a user-defined network, drop `ports` and add the proxy's public name:
+    #   environment:
+    #     MCP_ALLOWED_HOSTS: mcp.example.com
+    volumes:
+      - audit:/data          # MB_AUDIT_FILE=/data/audit.jsonl
+    restart: unless-stopped
+    # The image has its own health check (GET /health). `docker compose ps` shows "healthy".
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  audit:

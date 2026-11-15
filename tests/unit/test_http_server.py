@@ -67,6 +67,11 @@ def parse(resp):
     return resp.json()
 
 
+def test_health_is_open_and_reports_ok(server_url):
+    r = httpx.get(server_url.removesuffix("/mcp") + "/health", timeout=10)
+    assert r.status_code == 200 and r.json() == {"status": "ok"}
+
+
 def test_no_token_is_401(server_url):
     assert rpc(server_url, None, "tools/list").status_code == 401
 

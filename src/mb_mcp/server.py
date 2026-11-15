@@ -54,11 +54,11 @@ def build_http_app(runtime: Runtime, host: str, port: int) -> Any:
 
     settings = runtime.settings
     if not settings.http_tokens:
-        raise ConfigError("MB_HTTP_TOKENS must define at least one token to serve HTTP")
+        raise ConfigError("MB_HTTP_TOKENS or MCP_HTTP_BEARER_TOKEN must define at least one token to serve HTTP")
     server = build_server(runtime)
     security = TransportSecuritySettings(
         enable_dns_rebinding_protection=True,
-        allowed_hosts=[f"{host}:{port}", f"127.0.0.1:{port}", f"localhost:{port}"],
+        allowed_hosts=sorted({f"{host}:{port}", f"127.0.0.1:{port}", f"localhost:{port}", *settings.allowed_hosts}),
         allowed_origins=sorted(settings.allowed_origins),
     )
     app = server.streamable_http_app(streamable_http_path="/mcp", stateless_http=True, transport_security=security,
