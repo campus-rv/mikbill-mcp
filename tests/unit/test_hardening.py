@@ -34,7 +34,8 @@ def events(path):
 
 
 def writes(fake):
-    return [(u, p) for u, p in fake.calls if "getuserdata" not in u and "check" not in u]
+    # reads that come before a write (user state, dependency checks, the payment type lists) are not writes
+    return [(u, p) for u, p in fake.calls if "getuserdata" not in u and "check" not in u and "getpaytype" not in u]
 
 
 # ---- H1: the audit log can never turn an executed write into a failure ------------------------------------
@@ -50,7 +51,8 @@ async def test_a_write_is_on_record_before_it_is_sent(settings, tmp_path):
 
     class Watching(FakeClient):
         async def call(self, uri, params=None, **kw):
-            seen.append([e["outcome"] for e in events(path)])  # what is on file when the request leaves
+            if "getpaytype" not in uri:  # the type lookup is a read that runs before the attempt is recorded
+                seen.append([e["outcome"] for e in events(path)])  # what is on file when the request leaves
             return await super().call(uri, params, **kw)
 
     rt = Runtime(settings, Watching(), AuditLog(str(path)))
@@ -65,7 +67,7 @@ async def test_nothing_is_sent_when_the_attempt_cannot_be_recorded(settings, fak
     rt = Runtime(settings, fake, audit)
     r = await rt.execute("mb_create_payment", dict(PAYMENT), ALL_SCOPE_SET)
     assert r["error"]["code"] == "audit_unavailable"
-    assert fake.calls == []
+    assert writes(fake) == []  # only the read of the payment types ran
 
 
 async def test_a_failed_outcome_record_does_not_mask_a_payment_that_ran(settings, fake, tmp_path):

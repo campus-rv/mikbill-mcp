@@ -13,7 +13,7 @@
       {"name": "start", "type": "integer", "required": false, "example": 0, "note": "Sent by the UI store"},
       {"name": "limit", "type": "integer", "required": false, "example": 25, "note": "Sent by the UI store"}
     ],
-    "paging": "UI sends page/start/limit. Whether the server honors them is not verified."
+    "paging": "The UI store sends page/start/limit, but Mikbill IGNORES them. Verified on the demo 2026-11-16: no parameters, limit 1, page 1 start 0 limit 5, page 2 start 5 limit 5 and start 3 all returned all 56 tariffs with totalCount 56. The tool therefore does not offer page, start or Mikbill's limit; limit and offset are the server's own and slice the rows."
   },
   "response": {
     "envelope": {"success": "boolean", "data": "array"},

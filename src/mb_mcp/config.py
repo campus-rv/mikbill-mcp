@@ -7,6 +7,7 @@ import json
 import logging
 import math
 import os
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -28,6 +29,11 @@ DEFAULT_TRANSPORT = "stdio"
 DEFAULT_HTTP_HOST = "127.0.0.1"
 DEFAULT_HTTP_PORT = 8000
 MIN_BEARER_TOKEN_LENGTH = 16
+BEARER_PRINCIPAL = "bearer"  # the principal id of MCP_HTTP_BEARER_TOKEN
+MAX_BULK_LIMIT = 1000   # MB_MAX_BULK: most subscribers or tickets in one bulk call
+
+
+_SHA256_HEX = re.compile(r"[0-9a-f]{64}")
 
 
 class ConfigError(ValueError):
@@ -117,7 +123,7 @@ class Settings:
             insecure_tls=e.get("MB_INSECURE_TLS", "") == "1",
             connect_timeout=_float(e, "MB_TIMEOUT_CONNECT", 5.0),
             read_timeout=_float(e, "MB_TIMEOUT_READ", 30.0),
-            max_bulk=int(_float(e, "MB_MAX_BULK", 50)),
+            max_bulk=_count(e, "MB_MAX_BULK", 50, minimum=1, maximum=MAX_BULK_LIMIT),
             max_payment=max_payment,
             max_payment_total=max_payment_total,
             audit_file=e.get("MB_AUDIT_FILE") or None,
@@ -163,10 +169,12 @@ def _positive(e: Mapping[str, str], name: str, default: float) -> float:
     return value
 
 
-def _count(e: Mapping[str, str], name: str, default: int) -> int:
+def _count(e: Mapping[str, str], name: str, default: int, *, minimum: int = 0, maximum: int | None = None) -> int:
+    """A whole number from the environment, between `minimum` and `maximum`. inf, nan and fractions are refused."""
     value = _float(e, name, default)
-    if not math.isfinite(value) or value < 0 or value != int(value):
-        raise ConfigError(f"{name} must be a whole number, 0 or more")
+    bounds = f"{minimum} or more" if maximum is None else f"between {minimum} and {maximum}"
+    if not math.isfinite(value) or value != int(value) or value < minimum or (maximum is not None and value > maximum):
+        raise ConfigError(f"{name} must be a whole number, {bounds}")
     return int(value)
 
 
@@ -206,7 +214,7 @@ def bearer_token(token: str, scopes: frozenset[str]) -> HttpToken:
     if len(token) < MIN_BEARER_TOKEN_LENGTH:
         raise ConfigError(f"MCP_HTTP_BEARER_TOKEN must be at least {MIN_BEARER_TOKEN_LENGTH} characters")
     digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
-    return HttpToken(id="bearer", sha256=digest, scopes=scopes)
+    return HttpToken(id=BEARER_PRINCIPAL, sha256=digest, scopes=scopes)
 
 
 def parse_scopes(raw: str) -> frozenset[str]:
@@ -218,21 +226,38 @@ def parse_scopes(raw: str) -> frozenset[str]:
 
 
 def parse_tokens(raw: str) -> tuple[HttpToken, ...]:
-    """MB_HTTP_TOKENS is a JSON list: [{"id": "agent1", "sha256": "<hex>", "scopes": ["read"]}]."""
+    """MB_HTTP_TOKENS is a JSON list: [{"id": "agent1", "sha256": "<hex>", "scopes": ["read"]}].
+
+    Each entry is checked, because a mistake here fails silently at run time: a plain token pasted into `sha256`
+    never matches, and a token with no scopes can do nothing.
+    """
     if not raw.strip():
         return ()
     try:
         items = json.loads(raw)
     except json.JSONDecodeError as exc:
         raise ConfigError("MB_HTTP_TOKENS is not valid JSON") from exc
-    tokens = []
+    if not isinstance(items, list) or not all(isinstance(item, dict) for item in items):
+        raise ConfigError('MB_HTTP_TOKENS must be a JSON list of {"id", "sha256", "scopes"} objects')
+    tokens: list[HttpToken] = []
+    seen: set[str] = set()
     for item in items:
-        try:
-            tokens.append(HttpToken(
-                id=str(item["id"]),
-                sha256=str(item["sha256"]).lower(),
-                scopes=parse_scopes(",".join(item.get("scopes", []))),
-            ))
-        except (KeyError, TypeError) as exc:
-            raise ConfigError("each MB_HTTP_TOKENS entry needs id, sha256, scopes") from exc
+        token_id = item.get("id")
+        digest = item.get("sha256")
+        scopes = item.get("scopes")
+        if not isinstance(token_id, str) or not token_id.strip() or not isinstance(digest, str)                 or not isinstance(scopes, list):
+            raise ConfigError("each MB_HTTP_TOKENS entry needs id, sha256, scopes")
+        token_id = token_id.strip()
+        if token_id == BEARER_PRINCIPAL:
+            raise ConfigError(f"MB_HTTP_TOKENS id {BEARER_PRINCIPAL!r} is reserved for MCP_HTTP_BEARER_TOKEN")
+        if token_id in seen:
+            raise ConfigError(f"MB_HTTP_TOKENS has the id {token_id!r} twice")
+        seen.add(token_id)
+        digest = digest.strip().lower()
+        if not _SHA256_HEX.fullmatch(digest):
+            raise ConfigError(f"MB_HTTP_TOKENS {token_id!r}: sha256 must be the 64-character SHA-256 hex digest of the "
+                              "token, not the token itself")
+        if not scopes or not all(isinstance(scope, str) for scope in scopes):
+            raise ConfigError(f"MB_HTTP_TOKENS {token_id!r}: scopes must be a non-empty list of scope names")
+        tokens.append(HttpToken(id=token_id, sha256=digest, scopes=parse_scopes(",".join(scopes))))
     return tuple(tokens)

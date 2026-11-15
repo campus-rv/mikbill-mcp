@@ -48,7 +48,7 @@ class Endpoint:
         return self.scope == "read" or self.read_only
 
 
-# ---- read (25) -------------------------------------------------------------------------
+# ---- read (26) -------------------------------------------------------------------------
 
 READ: list[Endpoint] = [
     Endpoint("mb_check_session", "checkLoggedIn", "/json/users/getcountfl", "read",
@@ -68,6 +68,24 @@ READ: list[Endpoint] = [
                   "traffic counters, tariff, switch and address. Mikbill ignores filters for this endpoint, so the "
                   "optional useruid, user, gid, sectorid, swid and settlementid are applied to the rows.",
              desc="List subscribers with an active internet session right now: login, IP, session start and duration, traffic counters, tariff, switch and address. The optional filters are applied to the rows."),
+    Endpoint("mb_get_payment_info", None, "/json/users/howmatchpayflex", "read",
+             note="The data behind the admin UI's Payment window: itog_summa (recommended payment), the fee parts "
+                  "(abonplata, abonplata_installments, abonplata_real_now, abonplata_subscriptions, abonplata_user_dev), "
+                  "date_itog, days_left, deposit, total_payments. Without uid Mikbill answers error 25.",
+             desc="Show what a subscriber should pay: the recommended payment, the parts of the fee (tariff, "
+                  "installments, real IP, subscriptions, devices), the date the service is paid until, days left, the "
+                  "balance and total payments so far."),
+    Endpoint("mb_list_payment_types", None, "/json/users/getpaytypeabonplatalistflex", "read",
+             note="Reads the four lists the UI's operation forms use: getpaytypeabonplatalistflex (fee), "
+                  "getpaytypeakciyalistflex (promotion), getpaytypepereschetlistflex (correction) and "
+                  "getpaytypepodkllistflex (connection). Each row is bughtypeid and typename (Russian). 'Set balance' "
+                  "(-1) is left out: bughtypeid must be 0 or more. The uri here is the first list; the runtime reads "
+                  "all four. Cached for five minutes.",
+             desc="List the payment (operation) types, with the bughtypeid that mb_create_payment and mb_bulk_payment "
+                  "need, grouped as fee (charges such as subscription fees and penalties), promotion (bonuses and "
+                  "gifts), correction (recalculations and withdrawals) and connection (connection and repair work). "
+                  "The ids differ between installations. A plain payment from a subscriber needs no type: use "
+                  "mb_receive_payment."),
     Endpoint("mb_get_user", "getUser", "/json/users/getuserdatambp", "read",
              note="Redact password, router_pass, router_wep_pass.",
              desc="Get one subscriber's full record: account state, tariff, balance, address, contacts and network settings. Passwords are always masked; passport, tax id and birth date are masked unless the pii scope is granted."),
@@ -206,12 +224,26 @@ ACCOUNT: list[Endpoint] = [
              desc="Restore a soft-deleted subscriber. Without gid the user keeps the old tariff."),
 ]
 
-# ---- finance (13, gated) -----------------------------------------------------------------
+# ---- finance (15, gated) -----------------------------------------------------------------
 
 FINANCE: list[Endpoint] = [
+    Endpoint("mb_receive_payment", None, "/json/users/paymentflex", "finance", gated=True,
+             note="The admin UI's Payment window: an ordinary top-up (history type 'Пополнение счета'). uid, deposit, "
+                  "prim2 plus beznal_payment, beznal_date, do_fiscalization. The answer is a receipt: bughid (payment "
+                  "id), bughtime, fio, address, and deposit and credit as they were BEFORE the payment. Mikbill ignores a "
+                  "zero or negative deposit (success, nothing happens) and does not require prim2.",
+             desc="Register a payment received from a subscriber (an ordinary top-up) and add it to the balance. Moves "
+                  "money. beznal_payment marks it as non-cash; do_fiscalization asks Mikbill to send a fiscal receipt "
+                  "when a cash register is configured. For other balance operations (promotions, recalculations, "
+                  "fees) use mb_create_payment."),
     Endpoint("mb_create_payment", "payment", "/json/users/paymentdoflex", "finance", gated=True,
-             note="Moves money. uid, bughtypeid, deposit, prim2.",
-             desc="Add a payment to one subscriber's balance. Moves money."),
+             note="Moves money. uid, bughtypeid, deposit, prim2. The UI uses this endpoint for the promotion, "
+                  "recalculation, subscription-fee and connect/repair operation forms, each with its own list of "
+                  "bughtypeid values.",
+             desc="Add a balance operation of a given type to one subscriber: a promotion, a recalculation, a fee. "
+                  "bughtypeid comes from mb_list_payment_types. Fee types (a penalty of 1 lowered the "
+                  "balance by 1) take money off the balance, promotion types add it. Moves money. For an ordinary payment received from the subscriber use "
+                  "mb_receive_payment."),
     Endpoint("mb_bulk_payment", None, "/json/users/paymentdomulti", "finance", gated=True,
              note="Moves money on every listed account. set_users_list, deposit, prim2, bughtypeid.",
              desc="Add the same payment to every listed subscriber's balance. Moves money."),
@@ -238,6 +270,13 @@ FINANCE: list[Endpoint] = [
     Endpoint("mb_unset_personal_service", None, "/json/users/unsetpersonalserviceuser",
              "finance", gated=True, note="uid, serviceid (activate, code optional).",
              desc="Turn a personal service off for a subscriber."),
+    Endpoint("mb_set_credit", None, "/extjs/users/credit", "finance", gated=True,
+             note="The admin UI's change-credit window. uid, credit. Replaces the credit (10 then 25 leaves 25), it does "
+                  "not add. Above the installation's maximum Mikbill answers error 2 'credit summa greater than "
+                  "allowed' (the text is in error_text). A zero or negative credit is ignored with success; use "
+                  "mb_remove_credit_single to clear. /extjs/users/creditsumma?uid= shows the limits (credit_maximum).",
+             desc="Set one subscriber's credit limit to the given amount. It replaces the current credit instead of "
+                  "adding to it, and Mikbill refuses amounts above its maximum. Moves money."),
     Endpoint("mb_remove_credit_single", None, "/json/users/creditnullfl", "finance", gated=True, note="uid.",
              desc="Remove one subscriber's credit."),
     Endpoint("mb_bulk_remove_credit", None, "/json/users/creditnullmulti", "finance", gated=True,

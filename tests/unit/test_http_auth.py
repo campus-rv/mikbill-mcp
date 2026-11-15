@@ -130,11 +130,27 @@ async def test_other_paths_still_need_a_token(settings):
     assert rec.status == 401
 
 
-async def test_non_http_scopes_pass_through(settings):
+async def test_lifespan_passes_through(settings):
     rec = Recorder()
     mw = BearerAuthMiddleware(rec.app, settings)
     await mw({"type": "lifespan"}, rec.receive, rec.send)
     assert rec.inner_called
+
+
+async def test_a_websocket_never_reaches_the_app_even_with_a_valid_token(settings):
+    rec = Recorder()
+    mw = BearerAuthMiddleware(rec.app, settings)
+    scope = {"type": "websocket", "path": "/mcp", "headers": [(b"authorization", f"Bearer {TOKEN}".encode())]}
+    await mw(scope, rec.receive, rec.send)
+    assert not rec.inner_called
+    assert rec.sent == [{"type": "websocket.close", "code": 1008}]
+
+
+async def test_an_unknown_scope_type_is_ignored_not_passed_on(settings):
+    rec = Recorder()
+    mw = BearerAuthMiddleware(rec.app, settings)
+    await mw({"type": "something-new"}, rec.receive, rec.send)
+    assert not rec.inner_called and rec.sent == []
 
 
 async def test_error_body_is_json(settings):

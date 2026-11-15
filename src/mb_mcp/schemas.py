@@ -45,12 +45,15 @@ FLAG_FIELDS = frozenset({
     "use_installments", "lane_create", "house_create", "blocked", "do_freeze_now", "do_return_abonplata",
     "freeze_do_ever", "dont_use_uplink", "do_check_switch_port", "do_mac_autoreg_by_radius", "use_circut_template",
     "use_unit_find", "use_module_find", "do_ip_unnumbered", "strict_dhcp_mode", "show_ticket_to_user",
+    "beznal_payment", "do_fiscalization",
 })
+# Calendar dates, YYYY-MM-DD.
+DATE_FIELDS = frozenset({"beznal_date"})
 MAX_TEXT_INPUT = 4000   # longest text argument accepted
 
 # Arguments whose values may be written to the audit log as they are: ids, amounts, switches, enums and dates.
 # Every other argument is free text (names, notes, addresses, logins, codes) and is masked there.
-AUDIT_CLEAR_KEYS = (ID_FIELDS | COUNT_FIELDS | PAYMENT_FIELDS | MONEY_FIELDS | FLAG_FIELDS | frozenset({
+AUDIT_CLEAR_KEYS = (ID_FIELDS | COUNT_FIELDS | PAYMENT_FIELDS | MONEY_FIELDS | FLAG_FIELDS | DATE_FIELDS | frozenset({
     "uids", "ticket_ids", "user_labels", "states", "internet", "match", "limit", "detail", "status", "rating",
     "dogovor", "force", "type_list", "from_date", "to_date", "freeze_date_start", "freeze_date_stop",
     "performafter", "performbefore",
@@ -92,6 +95,9 @@ SEARCH_INTERNET = {"on": 1, "off": 2}          # search_internet: 0 (omitted) is
 SEARCH_MATCH = {"all": "1", "any": "0"}        # op: 1 = every filter must match, 0 = any filter
 SEARCH_CONTRACT_STATES = (0, 1, 2, 3)          # dogovor: no data, active, suspended, closed
 MAX_ROWS = 1000
+DEFAULT_LIST_ROWS = 500   # default `limit` of the dictionary lists and the long histories
+# Where the admin UI lists the operation types (bughtypeid) for its operation forms: one list per form.
+PAYMENT_TYPE_KINDS = ("fee", "promotion", "correction", "connection")
 DETAIL = ("summary", "full")
 
 SEARCH_HELP = {
@@ -146,8 +152,9 @@ FIELD_HELP: dict[str, str] = {
     "prioritytypeid": "Ticket priority id, see mb_list_ticket_priorities.",
     "statustypeid": "Ticket status: 1 open, 2 closed, 3 in work, 4 performed.",
     "serviceid": "Personal service id.",
-    "bughtypeid": "Payment type id. The ids are specific to the installation (on the demo 17 is a promotional "
-                  "credit); ask the user which one to use.",
+    "bughtypeid": "Payment (operation) type id. The ids are specific to the installation: take one from "
+                  "mb_list_payment_types. Mikbill accepts an unknown id and records a payment with no type, so the "
+                  "server refuses ids that are not in the list.",
     "id": "Sticky note id.",
     "parent_swid": "Id of the uplink switch, 0 for none.",
     "dev_sectorid": "Sector id of the device.",
@@ -235,6 +242,10 @@ FIELD_HELP: dict[str, str] = {
     "deposit": "Amount credited to each account. More than 0; the server caps it (MB_MAX_PAYMENT).",
     "credit": "Credit amount for each account. More than 0; the server caps it (MB_MAX_PAYMENT).",
     "prim2": "Comment stored with the payment.",
+    "beznal_payment": "1 marks the payment as non-cash (a bank transfer), 0 or omitted for cash.",
+    "beznal_date": "Date of a non-cash payment, YYYY-MM-DD. Only with beznal_payment 1.",
+    "do_fiscalization": "1 asks Mikbill to send a fiscal receipt when a cash register integration is configured, 0 "
+                        "does not. Omit to use Mikbill's default.",
     "tarif": "Name of the new tariff.",
     "packet": "Tariff name.",
     "alias": "Tariff alias.",
@@ -283,6 +294,10 @@ _FREEZE_OPT = ("do_return_abonplata", "freeze_do_ever", "freeze_date_start", "fr
 SCHEMAS: dict[str, ToolSchema] = {
     # ---- read ----
     "mb_check_session": _S(),
+    "mb_get_payment_info": _S(("uid",)),
+    # Four UI lists (fee, promotion, correction, connection); the runtime reads all of them, or the one in `kind`.
+    "mb_list_payment_types": _S((), ("kind",), enums={"kind": PAYMENT_TYPE_KINDS},
+                                help={"kind": "Only this group of types. Omit to list all four."}),
     "mb_count_users": _S(),
     # The same filters as the admin UI's search tab. At least one filter is required: an empty search returns every
     # subscriber (905 on the demo, deleted ones included), and Mikbill does not page the result.
@@ -292,21 +307,23 @@ SCHEMAS: dict[str, ToolSchema] = {
         enums={"dogovor": SEARCH_CONTRACT_STATES}, help=SEARCH_HELP, user_search=True, row_limit=100,
         summary=SEARCH_SUMMARY),
     "mb_get_user": _S(("uid",)),
-    "mb_get_user_payment_history": _S(("uid",), ("from_date", "to_date")),
-    "mb_get_user_short_history": _S(("uid",)),
+    "mb_get_user_payment_history": _S(("uid",), ("from_date", "to_date"), row_limit=DEFAULT_LIST_ROWS),
+    "mb_get_user_short_history": _S(("uid",), row_limit=DEFAULT_LIST_ROWS),
     "mb_get_user_canvas_stat": _S(("uid",)),
     # Mikbill wants the parameter named useruid here; `uid` returns an empty {} even when the user has devices.
     "mb_get_user_devices": _S(("uid",), rename={"uid": "useruid"}, allow_empty=True),
-    "mb_list_dev_types": _S(),
-    "mb_list_settlements": _S(),
-    "mb_list_neighborhoods": _S(),
-    "mb_list_lanes": _S(),
-    "mb_list_houses": _S(),
-    "mb_list_sectors": _S(),
-    "mb_list_switches": _S(),
-    "mb_list_switch_types": _S(),
-    "mb_list_packets": _S((), ("page", "start", "limit")),
-    "mb_list_user_groups": _S(),
+    "mb_list_dev_types": _S(row_limit=DEFAULT_LIST_ROWS),
+    "mb_list_settlements": _S(row_limit=DEFAULT_LIST_ROWS),
+    "mb_list_neighborhoods": _S(row_limit=DEFAULT_LIST_ROWS),
+    "mb_list_lanes": _S(row_limit=DEFAULT_LIST_ROWS),
+    "mb_list_houses": _S(row_limit=DEFAULT_LIST_ROWS),
+    "mb_list_sectors": _S(row_limit=DEFAULT_LIST_ROWS),
+    "mb_list_switches": _S(row_limit=DEFAULT_LIST_ROWS),
+    "mb_list_switch_types": _S(row_limit=DEFAULT_LIST_ROWS),
+    # Mikbill ignores page, start and limit on this list (verified: always every tariff), so they are not offered;
+    # `limit` and `offset` are the server's own.
+    "mb_list_packets": _S(row_limit=DEFAULT_LIST_ROWS),
+    "mb_list_user_groups": _S(row_limit=DEFAULT_LIST_ROWS),
     # Mikbill ignores every parameter for inetonlinefl (verified), so the filters are applied to the rows.
     "mb_list_online_users": _S(
         (), ("useruid", "user", "gid", "sectorid", "swid", "settlementid"),
@@ -402,6 +419,12 @@ SCHEMAS: dict[str, ToolSchema] = {
                                 "itog_summa": "Total amount Mikbill charges; only together with gid."}),
     # ---- finance ----
     "mb_create_payment": _S(("uid", "bughtypeid", "deposit", "prim2")),
+    # The admin UI's Payment window (paymentflex): an ordinary top-up. Zero and negative amounts are silently ignored
+    # by Mikbill (success, nothing happens); they are refused here by the PAYMENT_FIELDS rule.
+    "mb_receive_payment": _S(("uid", "deposit", "prim2"), ("beznal_payment", "beznal_date", "do_fiscalization")),
+    # /extjs/users/credit replaces the credit limit with the amount (10 then 25 leaves 25); above Mikbill's maximum it
+    # answers error 2, and 0 or a negative amount is silently ignored (refused here).
+    "mb_set_credit": _S(("uid", "credit")),
     "mb_bulk_payment": _S(("bughtypeid", "deposit", "prim2"), uids=True),
     "mb_change_tariff": _S(("uid", "gid"), help={"gid": "New tariff id, see mb_list_packets."}),
     "mb_enable_flex_tariff": _S(("uid", "gid"), ("itog_summa",), defaults={"itog_summa": 0}, fixed={"type_list": 2},

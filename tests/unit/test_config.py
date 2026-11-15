@@ -114,3 +114,77 @@ def test_tokens_invalid():
         parse_tokens("not json")
     with pytest.raises(ConfigError):
         parse_tokens('[{"id": "a"}]')
+
+
+# ---- L2: MB_MAX_BULK has bounds -------------------------------------------------------------------------------
+
+@pytest.mark.parametrize("value", ["0", "-1", "-5", "inf", "nan", "1.5", "1001", "5000"])
+def test_mb_max_bulk_must_be_a_whole_number_between_1_and_1000(value):
+    with pytest.raises(ConfigError, match="MB_MAX_BULK must be a whole number, between 1 and 1000"):
+        Settings.from_env(env(MB_MAX_BULK=value))
+
+
+def test_mb_max_bulk_text_is_refused_as_not_a_number():
+    with pytest.raises(ConfigError, match="MB_MAX_BULK must be a number"):
+        Settings.from_env(env(MB_MAX_BULK="abc"))
+
+
+@pytest.mark.parametrize("value,expected", [("1", 1), ("50", 50), ("1000", 1000), ("25.0", 25), ("", 50)])
+def test_mb_max_bulk_accepts_values_in_range(value, expected):
+    assert Settings.from_env(env(MB_MAX_BULK=value)).max_bulk == expected
+
+
+# ---- L3: MB_HTTP_TOKENS entries are checked ---------------------------------------------------------------------
+
+import json as _json  # noqa: E402
+
+GOOD = hash_token("a-long-enough-secret-token")
+
+
+def tokens(*entries):
+    return _json.dumps(list(entries))
+
+
+def entry(**kw):
+    return {"id": "agent", "sha256": GOOD, "scopes": ["read"], **kw}
+
+
+def test_a_valid_entry_is_accepted_and_the_digest_is_lower_cased():
+    (t,) = parse_tokens(tokens(entry(sha256=GOOD.upper(), id=" agent ")))
+    assert t.sha256 == GOOD and t.id == "agent"
+
+
+@pytest.mark.parametrize("raw,match", [
+    ('{"id": "a"}', "JSON list"),
+    ('"text"', "JSON list"),
+    ("[1, 2]", "JSON list"),
+    (tokens(entry(sha256="a-long-enough-secret-token")), "64-character SHA-256 hex digest"),   # the token pasted in
+    (tokens(entry(sha256=GOOD[:-1])), "64-character"),
+    (tokens(entry(sha256=GOOD + "0")), "64-character"),
+    (tokens(entry(sha256="z" * 64)), "64-character"),
+    (tokens(entry(sha256="")), "64-character"),
+    (tokens(entry(sha256=5)), "needs id, sha256, scopes"),
+    (tokens(entry(scopes=[])), "non-empty list"),
+    (tokens(entry(scopes="read")), "needs id, sha256, scopes"),
+    (tokens(entry(scopes=[1])), "non-empty list"),
+    (tokens(entry(scopes=["bogus"])), "unknown scopes"),
+    (tokens(entry(id="")), "needs id, sha256, scopes"),
+    (tokens(entry(id="  ")), "needs id, sha256, scopes"),
+    (tokens(entry(id=7)), "needs id, sha256, scopes"),
+    (tokens(entry(), entry()), "twice"),
+    (tokens(entry(id="bearer")), "reserved"),
+])
+def test_bad_token_entries_are_refused_at_start_up(raw, match):
+    with pytest.raises(ConfigError, match=match):
+        parse_tokens(raw)
+
+
+def test_two_tokens_with_different_ids_are_fine():
+    parsed = parse_tokens(tokens(entry(id="reader"), entry(id="billing", scopes=["read", "finance"])))
+    assert [t.id for t in parsed] == ["reader", "billing"]
+
+
+def test_the_bearer_token_env_does_not_clash_with_the_list():
+    raw = tokens(entry(id="reader"))
+    s = Settings.from_env(env(MB_HTTP_TOKENS=raw, MCP_HTTP_BEARER_TOKEN="a-long-enough-secret-token"), **HTTP)
+    assert [t.id for t in s.http_tokens] == ["reader", "bearer"]

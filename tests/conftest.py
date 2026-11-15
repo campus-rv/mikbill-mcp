@@ -15,6 +15,18 @@ def settings() -> Settings:
                     scopes=frozenset(ALL_SCOPES), max_bulk=5)
 
 
+# The four operation-type lists of the admin UI (shape and ids from the demo). Payment tools check bughtypeid against them.
+PAY_TYPE_ROWS = {
+    "/json/users/getpaytypeabonplatalistflex": [{"bughtypeid": "1", "typename": "Subscription fee"},
+                                                {"bughtypeid": "104", "typename": "Penalty"}],
+    "/json/users/getpaytypeakciyalistflex": [{"bughtypeid": "17", "typename": "Promotion"},
+                                             {"bughtypeid": "16", "typename": "Gift"}],
+    "/json/users/getpaytypepereschetlistflex": [{"bughtypeid": "10", "typename": "Recalculation"},
+                                                {"bughtypeid": -1, "typename": "Set balance"}],
+    "/json/users/getpaytypepodkllistflex": [{"bughtypeid": "27", "typename": "Connection"}],
+}
+
+
 class FakeClient:
     """Stands in for MikbillClient. `responses` maps uri -> envelope, exception, or callable(params)."""
 
@@ -25,7 +37,8 @@ class FakeClient:
     async def call(self, uri: str, params: dict[str, Any] | None = None, *, allow_empty: bool = False,
                    no_success_key: bool = False) -> dict[str, Any]:
         self.calls.append((uri, dict(params or {})))
-        resp = self.responses.get(uri, {"success": True, "data": []})
+        default = {"success": True, "data": PAY_TYPE_ROWS.get(uri, [])}
+        resp = self.responses.get(uri, default)
         if callable(resp):
             resp = resp(params)
         if isinstance(resp, MikbillError):

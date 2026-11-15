@@ -1,0 +1,140 @@
+{
+  "captured_at": "2026-11-16",
+  "target": "https://admin.mikbill.pro (public demo). One read-only call on the demo subscriber, then writes on a throwaway MCPTEST subscriber (uid 915, soft-deleted afterwards). Run from the signed-in admin page; no other record was changed.",
+  "method": "The routes were found in the admin UI's own code (the app.js bundle): which form posts to which URL, and which fields each form has. Each route was then called directly and the effect read back with getuserdatambp.",
+  "already_in_the_server": {
+    "/json/users/paymentdoflex": "mb_create_payment. The UI uses it for four operation forms (promotion, recalculation, subscription fee, connect/repair), each with its own list of bughtypeid values.",
+    "/json/users/creditnullfl": "mb_remove_credit_single."
+  },
+  "mb_get_payment_info": {
+    "uri": "/json/users/howmatchpayflex",
+    "scope": "read",
+    "used_by": "The Payment window loads it (uid) and shows the values.",
+    "request": [
+      "uid"
+    ],
+    "response": "{success: true, error: 0, data: [{abonplata, abonplata_installments, abonplata_real_now, abonplata_subscriptions, abonplata_user_dev, date_itog, days_left, deposit, itog_summa, total_payments}]}",
+    "example": {
+      "abonplata": "0",
+      "abonplata_real_now": "75",
+      "date_itog": "05-06-2027 23:59",
+      "days_left": 201,
+      "deposit": 499.11,
+      "itog_summa": "0.00",
+      "total_payments": 75
+    },
+    "notes": [
+      "itog_summa is the recommended payment. On a new user it was 266 (240 tariff + 31 subscriptions - 5 balance).",
+      "Without uid: {success: false, error: 25, data: [[]]}."
+    ]
+  },
+  "mb_receive_payment": {
+    "uri": "/json/users/paymentflex",
+    "scope": "finance",
+    "used_by": "The Payment window of a subscriber (the main 'pay' dialog, with fiscalization and non-cash options).",
+    "request": [
+      "uid",
+      "deposit",
+      "prim2",
+      "beznal_payment",
+      "beznal_date",
+      "do_fiscalization",
+      "print"
+    ],
+    "request_notes": [
+      "`print` is a client-side switch (print a receipt in the browser); it is not exposed.",
+      "prim2 is not required by Mikbill (a payment without it succeeded) but the tool requires it so every payment has a note.",
+      "beznal_payment 1 and beznal_date YYYY-MM-DD were accepted; do_fiscalization 0 and 1 were accepted. The demo has no cash register integration, so what fiscalization does on a real installation was not observed."
+    ],
+    "response": "{success: true, error: 0, data: [{address, bughid, bughtime, company_id, credit, deposit, fio, ok}]}. It is a receipt: bughid is the payment id and deposit and credit are the values BEFORE the payment (the first test showed deposit -1 and the balance afterwards read 4).",
+    "verified": [
+      "deposit 5: balance -1 -> 4; receipt deposit -1.",
+      "no prim2: succeeded (+1).",
+      "beznal_payment 1 with beznal_date 2026-11-15: succeeded (+2). do_fiscalization 0 and 1: succeeded (+1 each).",
+      "history type of these payments is 'Пополнение счета' (a plain top-up)."
+    ],
+    "silent_no_ops": "deposit 0 and deposit -3 answer {success: true, data: [{ok: 0}]} and change nothing. The tool refuses amounts <= 0 so this cannot look like a payment.",
+    "errors": [
+      "Without uid: {success: false, error: 1, errorKey: 'uid', errortext: 'Не указан обязательный параметр: uid'}."
+    ]
+  },
+  "mb_set_credit": {
+    "uri": "/extjs/users/credit",
+    "scope": "finance",
+    "used_by": "The Change-credit window of a subscriber. The bulk form posts to /extjs/users/creditmulti with set_users_list; the server's mb_bulk_issue_credit uses /json/users/creditmulti.",
+    "request": [
+      "uid",
+      "credit"
+    ],
+    "response": "{success: true, error: 0} (no data).",
+    "verified": [
+      "credit 10: the subscriber's credit read 10. credit 25 afterwards: 25. It REPLACES the credit, it does not add.",
+      "credit 5000 (the demo's maximum is 1500): {success: false, error: 2, error_text: 'credit summa greater than allowed'}; credit stayed 0.",
+      "credit 0 and credit -5: {success: true} and nothing changed (silent no-ops; the tool refuses them).",
+      "creditnullfl (mb_remove_credit_single) set the credit back to 0."
+    ],
+    "errors": [
+      "This route says error_text, not errortext. The server's error mapping now reads both.",
+      "Without credit: {success: false, error: 1, error_text: \"parameter 'credit' not found\"}.",
+      "Without uid or with an unknown uid: {success: false, error: 1001, error_text: 'user not found'}."
+    ],
+    "related_not_exposed": "/extjs/users/creditsumma?uid= answers the limits: {credit_maximum: '1500.00', credit_summa: '0.00', credit_type: 1, will_be_avilable_days: 0, ...}. The UI calls it only when the installation's do_credit_like_cabinet option is 1. It could become a read tool (mb_get_credit_info)."
+  },
+  "cleanup": "The MCPTEST subscriber (uid 915) was soft-deleted (state 4). The payments made on it (+9 in total) stay in the demo's history.",
+  "mb_list_payment_types": {
+    "uris": {
+      "fee": "/json/users/getpaytypeabonplatalistflex",
+      "promotion": "/json/users/getpaytypeakciyalistflex",
+      "correction": "/json/users/getpaytypepereschetlistflex",
+      "connection": "/json/users/getpaytypepodkllistflex"
+    },
+    "scope": "read",
+    "found_because": "Bug report: an agent could not make a payment because it could not find a valid bughtypeid. mb_create_payment and mb_bulk_payment require one, and no tool listed them.",
+    "request": "None. Each list is one POST with no parameters.",
+    "response": "{success: true, data: [{bughtypeid, typename}]}. Names are Russian translation strings.",
+    "used_by": "The four operation forms of the admin UI: subscription fee (abonplata), promotion (akciya), recalculation (pereschet) and connect/repair (podkl). Each form has a combo bound to its own list; all of them post to /json/users/paymentdoflex.",
+    "demo_lists": {
+      "fee": {
+        "1": "Subscription fee for the current month",
+        "2": "Subscription fee for the current day",
+        "9": "External IP rental",
+        "21": "Residual monthly fee",
+        "22": "Residual fee for the current month",
+        "26": "Tariff change",
+        "33": "Promotional tariff activation",
+        "35": "Credit service activation",
+        "36": "Credit service with %",
+        "104": "Penalty",
+        "105": "Cancel a non-cash payment"
+      },
+      "promotion": {
+        "17": "Promotion",
+        "16": "Gift",
+        "15": "Bonus for community work"
+      },
+      "correction": {
+        "6": "Input error",
+        "7": "Withdrawal",
+        "10": "Recalculation",
+        "24": "Refund for a network outage",
+        "99": "Correction",
+        "100": "Transfer of personal funds",
+        "-1": "Set balance"
+      },
+      "connection": {
+        "23": "Tariff change from next month",
+        "25": "Repair",
+        "27": "Connection",
+        "30": "Second account",
+        "103": "Cable laying"
+      }
+    },
+    "findings": [
+      "Mikbill does not validate bughtypeid: type 9999 answered {success: true} and recorded a payment of +1 whose history type is empty. The server therefore checks the id against these lists and refuses unknown ones before sending.",
+      "No bughtypeid at all answers {success: false, error: 1202, errortext: 'Something went wrong. Error (1202) is written to the general log'}, and nothing changes.",
+      "Type 17 (promotion) with deposit 1 added 1 (history type 'Акция'). Type 104 (fee, 'Пеня') with deposit 1 took 1 off the balance (history amount -1): fee types charge the subscriber, so the amount stays positive and the type decides the direction.",
+      "-1 ('Set balance') is in the correction list. The UI allows negative amounts for it and for type 10, but the server only accepts amounts above 0 and ids of 0 or more, so -1 is left out of the lookup."
+    ],
+    "writes_made": "One more MCPTEST subscriber (uid 916), four payments of 1 on it, then soft-deleted."
+  }
+}

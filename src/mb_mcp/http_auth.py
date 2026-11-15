@@ -128,8 +128,16 @@ class BearerAuthMiddleware:
             self.audit.record(tool="-", scope="-", principal=client, outcome=outcome, detail=detail)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http":  # lifespan etc.
+        kind = scope["type"]
+        if kind == "lifespan":
             await self.app(scope, receive, send)
+            return
+        if kind != "http":
+            # The server has no websocket (or other) route, and none may reach the app without a token: a route added
+            # later would otherwise be open. A websocket handshake is refused (1008, policy violation); any other
+            # scope type is ignored.
+            if kind == "websocket":
+                await send({"type": "websocket.close", "code": 1008})
             return
         if scope.get("path") == HEALTH_PATH and scope.get("method", "GET") in ("GET", "HEAD"):
             # Liveness only: no token, no Origin check, and nothing about the upstream or the configuration

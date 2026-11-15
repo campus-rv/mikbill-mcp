@@ -17,14 +17,14 @@ def names(runtime, scopes):
 # ---- scopes and listing ---------------------------------------------------------------------
 
 def test_listing_respects_scopes(runtime):
-    assert len(names(runtime, READ_WRITE)) == 37
+    assert len(names(runtime, READ_WRITE)) == 39
     assert "mb_add_settlement" not in names(runtime, READ_WRITE)  # address objects are admin
     assert "mb_add_house" not in names(runtime, READ_WRITE)
     assert "mb_add_house" in names(runtime, frozenset({"read", "admin"}))
     assert "mb_delete_settlement" not in names(runtime, READ_WRITE)
     assert "mb_add_switch" not in names(runtime, READ_WRITE)
     assert "mb_add_switch" in names(runtime, frozenset({"read", "admin"}))
-    assert len(names(runtime, ALL_SCOPE_SET)) == 95
+    assert len(names(runtime, ALL_SCOPE_SET)) == 99
     assert "mb_delete_user" not in names(runtime, READ_WRITE)  # soft delete is gated account
     assert "mb_delete_user" in names(runtime, frozenset({"read", "account"}))
     assert "mb_bulk_delete_users" not in names(runtime, READ_WRITE)
@@ -36,7 +36,7 @@ def test_listing_respects_scopes(runtime):
 def test_listing_is_limited_by_server_scopes(settings):
     from dataclasses import replace
     rt = Runtime(replace(settings, scopes=frozenset({"read"})), FakeClient())
-    assert len(rt.tools_for(ALL_SCOPE_SET)) == 25
+    assert len(rt.tools_for(ALL_SCOPE_SET)) == 27
 
 
 def test_every_tool_has_a_valid_input_schema(runtime):

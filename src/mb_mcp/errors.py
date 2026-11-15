@@ -82,7 +82,8 @@ def error_from_envelope(env: dict[str, Any], *, status: int | None = 200) -> Mik
         return None
 
     err = _as_int(env.get("error"))
-    text = str(env.get("errortext") or "")
+    # Most endpoints say errortext; /extjs/users/credit says error_text (verified on the demo)
+    text = str(env.get("errortext") or env.get("error_text") or "")
     key = str(env.get("errorKey") or "")
 
     if is_unauth(env):

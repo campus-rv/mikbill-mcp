@@ -598,6 +598,61 @@ async def test_ticket_lifecycle(demo):
     assert await row() is None
 
 
+async def test_payment_info_receive_payment_and_set_credit(demo, house):
+    """The routes the admin UI's Payment and Change-credit windows use (fixtures/payment_credit_info_verified.json)."""
+    uid = await new_user(demo, house, "g")
+
+    # howmatchpayflex: what the subscriber should pay
+    info = (await demo.ok("mb_get_payment_info", uid=uid))["data"][0]
+    assert {"itog_summa", "abonplata", "date_itog", "days_left", "deposit", "total_payments"} <= set(info)
+    await demo.err("mb_get_payment_info", "validation")  # uid is required
+
+    # operation types: the lookup lists the installation's ids, and an id that is not listed never reaches Mikbill (which
+    # would record a payment with an empty type)
+    types = (await demo.ok("mb_list_payment_types"))["data"]
+    assert types and {"bughtypeid", "typename", "kind"} <= set(types[0])
+    assert {t["kind"] for t in types} <= {"fee", "promotion", "correction", "connection"}
+    promo = int(next(t["bughtypeid"] for t in types if t["kind"] == "promotion"))
+    assert {t["kind"] for t in (await demo.ok("mb_list_payment_types", kind="promotion"))["data"]} == {"promotion"}
+    await demo.err("mb_create_payment", "validation", uid=uid, bughtypeid=9999, deposit=1, prim2="x", reason=REASON,
+                   dry_run=False)
+    before_typed = float((await demo.user(uid))["deposit"])
+    await demo.gated_ok("mb_create_payment", uid=uid, bughtypeid=promo, deposit=1, prim2="MCPTEST typed")
+    assert float((await demo.user(uid))["deposit"]) == before_typed + 1
+    await demo.gated_ok("mb_receive_payment", uid=uid, deposit=1, prim2="MCPTEST plain top-up")
+
+    # paymentflex: an ordinary top-up. The receipt reports the balance as it was BEFORE the payment.
+    before = float((await demo.user(uid))["deposit"])
+    r = await demo.gated_ok("mb_receive_payment", uid=uid, deposit=5, prim2="MCPTEST top-up")
+    receipt = r["data"][0]
+    assert receipt["bughid"] and float(receipt["deposit"]) == before
+    assert float((await demo.user(uid))["deposit"]) == before + 5
+    # non-cash with a date is accepted, and a zero or negative amount never reaches Mikbill (it would be ignored silently)
+    await demo.gated_ok("mb_receive_payment", uid=uid, deposit=1, prim2="MCPTEST non-cash", beznal_payment=1,
+                        beznal_date=date.today().isoformat())
+    assert float((await demo.user(uid))["deposit"]) == before + 6
+    await demo.err("mb_receive_payment", "validation", uid=uid, deposit=0, prim2="x", reason=REASON, dry_run=False)
+    await demo.err("mb_receive_payment", "validation", uid=uid, deposit=-3, prim2="x", reason=REASON, dry_run=False)
+    assert float((await demo.user(uid))["deposit"]) == before + 6
+    preview = await demo.ok("mb_receive_payment", uid=uid, deposit=5, prim2="x", reason=REASON, dry_run=True)
+    assert preview["data"]["summary"]["targets"][0]["uid"] == uid
+    assert float((await demo.user(uid))["deposit"]) == before + 6, "the preview moved money"
+    assert (await demo.ok("mb_get_payment_info", uid=uid))["data"][0]["deposit"] == before + 6
+
+    # /extjs/users/credit replaces the credit; above the maximum Mikbill refuses; mb_remove_credit_single clears it
+    assert str((await demo.user(uid))["credit"]) in ("0", "0.00")
+    await demo.gated_ok("mb_set_credit", uid=uid, credit=10)
+    assert float((await demo.user(uid))["credit"]) == 10
+    await demo.gated_ok("mb_set_credit", uid=uid, credit=25)
+    assert float((await demo.user(uid))["credit"]) == 25, "set_credit adds instead of replacing"
+    over = await demo.gated("mb_set_credit", uid=uid, credit=2999)  # under MB_MAX_PAYMENT, over the demo's 1500 maximum
+    assert not over["ok"] and "greater than allowed" in over["error"]["message"]
+    assert float((await demo.user(uid))["credit"]) == 25
+    await demo.err("mb_set_credit", "validation", uid=uid, credit=0, reason=REASON, dry_run=False)
+    await demo.gated_ok("mb_remove_credit_single", uid=uid)
+    assert float((await demo.user(uid))["credit"]) == 0
+
+
 async def test_cleanup_left_nothing_pending(demo):
     """Runs last: anything still deferred was not deleted by the test body (the fixture removes it afterwards)."""
     await demo.run_cleanup()

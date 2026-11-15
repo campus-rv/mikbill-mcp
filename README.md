@@ -1,6 +1,6 @@
 # mb-mcp
 
-MCP server for the Mikbill admin API. 95 tools in five scopes, including tickets and user restore, with opt-in scopes, a reason and an audit log for everything that changes billing, account state or privileges, server-side limits on ids and amounts, and MCP tool annotations so the client asks the user before it runs them. What the server enforces by itself, and what it leaves to the client, is in [Security model](#security-model). The design is in [SPEC.md](SPEC.md); per-endpoint evidence from the public demo is in [fixtures/](fixtures/).
+MCP server for the Mikbill admin API. 99 tools in five scopes, including tickets and user restore, with opt-in scopes, a reason and an audit log for everything that changes billing, account state or privileges, server-side limits on ids and amounts, and MCP tool annotations so the client asks the user before it runs them. What the server enforces by itself, and what it leaves to the client, is in [Security model](#security-model). The design is in [SPEC.md](SPEC.md); per-endpoint evidence from the public demo is in [fixtures/](fixtures/).
 
 ## Install and test
 
@@ -41,7 +41,7 @@ Environment variables only. Never commit them.
 | `MB_LOGIN`, `MB_PASSWORD` | A dedicated, least-privileged Mikbill admin account | required |
 | `MB_PASSWORD_FILE`, `MCP_HTTP_BEARER_TOKEN_FILE`, `MB_HTTP_TOKENS_FILE` | Read the secret from a file (Docker or Kubernetes secrets) instead of the variable of the same name. Set one or the other, not both | none |
 | `MB_SCOPES` | Comma list of `read,write,finance,account,admin,pii` | `read,write` |
-| `MB_MAX_BULK` | Maximum uids per bulk call | `50` |
+| `MB_MAX_BULK` | Maximum uids per bulk call (a whole number from 1 to 1000) | `50` |
 | `MB_MAX_PAYMENT` | Largest amount one call may credit to one account (`deposit`, `credit`). In the currency of the installation: set it to fit yours | `10000` |
 | `MB_MAX_PAYMENT_TOTAL` | Largest total of one bulk call (amount times accounts) | `50000` |
 | `MB_AUTH_MAX_FAILURES` | HTTP only: failed logins per client address and minute before the address gets 429. `0` turns it off | `10` |
@@ -51,7 +51,7 @@ Environment variables only. Never commit them.
 | `MB_AUDIT_FILE` | Path for a JSON-lines audit log of every tool call. The file is opened at start-up: a path that cannot be written stops the server | off (events still go to the log on stderr) |
 | `MCP_TRANSPORT` | `stdio` (a local MCP client starts the server) or `http` (Streamable HTTP). `--transport` or `--http` override it. The Docker image sets `http` | `stdio` |
 | `MCP_HTTP_BEARER_TOKEN` | HTTP only: one plain bearer token (at least 16 characters) that may use every scope in `MB_SCOPES`. Only its SHA-256 is kept in memory | none |
-| `MB_HTTP_TOKENS` | HTTP only: JSON list `[{"id": "agent1", "sha256": "<hex>", "scopes": ["read"]}]`, for tokens with different scopes. Can be combined with `MCP_HTTP_BEARER_TOKEN` | none |
+| `MB_HTTP_TOKENS` | HTTP only: JSON list `[{"id": "agent1", "sha256": "<hex>", "scopes": ["read"]}]`, for tokens with different scopes. `sha256` must be the 64-character hex digest of the token (not the token itself), ids must be unique and not `bearer`, and `scopes` must not be empty; a bad entry stops the server at start-up. Can be combined with `MCP_HTTP_BEARER_TOKEN` | none |
 | `MCP_HTTP_HOST`, `MCP_HTTP_PORT` | HTTP only: bind address and port. `--host` and `--port` override them. The Docker image sets `0.0.0.0` | `127.0.0.1`, `8000` |
 | `MCP_ALLOWED_ORIGINS` | HTTP only: comma list of allowed `Origin` values | none |
 | `MCP_ALLOWED_HOSTS` | HTTP only: extra allowed `Host` header values (`host:port`), for proxies and port mappings | none |
@@ -79,7 +79,7 @@ python -m mb_mcp --list-endpoints | awk '$1=="finance"||$1=="account"||$1=="admi
 ```json
 {
   "permissions": {
-    "ask": ["mcp__mikbill__mb_create_payment", "mcp__mikbill__mb_bulk_payment", "mcp__mikbill__mb_delete_user"]
+    "ask": ["mcp__mikbill__mb_receive_payment", "mcp__mikbill__mb_create_payment", "mcp__mikbill__mb_bulk_payment", "mcp__mikbill__mb_delete_user"]
   }
 }
 ```
@@ -325,5 +325,5 @@ Set `MB_SMOKE_IMAGE=<name>` to test an image you already built. CI runs ruff, my
 
 ## Status
 
-- Implemented: client, error mapping, gating, redaction, audit, runtime, stdio and HTTP servers, Docker image. 384 unit tests, including an in-memory MCP session, a real HTTP round trip and one regression section per finding of the 2026-11 security review (`tests/unit/test_hardening.py`). 22 Docker smoke tests pass.- The live contract suite (`tests/contract`) passes against the public Mikbill demo. All 10 tests passed on the last run, including the tests for ticket lookups, user history, devices and restore. Some paths are only partly covered: `mb_use_voucher` is tested with a wrong code only, and `mb_set_personal_service` only on a service without a portal.
+- Implemented: client, error mapping, gating, redaction, audit, runtime, stdio and HTTP servers, Docker image. 524 unit tests, including an in-memory MCP session, a real HTTP round trip and one regression section per finding of the 2026-11 security review (`tests/unit/test_hardening.py`). 22 Docker smoke tests pass.- The live contract suite (`tests/contract`) passes against the public Mikbill demo. All 10 tests passed on the last run, including the tests for ticket lookups, user history, devices and restore. Some paths are only partly covered: `mb_use_voucher` is tested with a wrong code only, and `mb_set_personal_service` only on a service without a portal.
 - Open items are listed in SPEC.md ("Blocked and denied", "Discovered endpoints").

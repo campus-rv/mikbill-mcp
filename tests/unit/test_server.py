@@ -25,16 +25,16 @@ async def test_list_tools_by_scope():
     rt, _ = make({"read", "write"})
     async with Client(build_server(rt)) as client:
         tools = (await client.list_tools()).tools
-    assert len(tools) == 37
+    assert len(tools) == 39
     names = {t.name for t in tools}
     assert "mb_kick_user" in names and "mb_delete_user" not in names and "mb_add_house" not in names
 
 
-async def test_all_scopes_list_95_tools_with_schemas():
+async def test_all_scopes_list_99_tools_with_schemas():
     rt, _ = make(ALL_SCOPES)
     async with Client(build_server(rt)) as client:
         tools = (await client.list_tools()).tools
-    assert len(tools) == 95
+    assert len(tools) == 99
     by_name = {t.name: t for t in tools}
     gated = by_name["mb_create_payment"].input_schema
     assert "dry_run" in gated["properties"] and "reason" in gated["required"]
@@ -78,7 +78,7 @@ async def test_tools_carry_annotations_and_titles_over_the_sdk():
     rt, _ = make(ALL_SCOPES)
     async with Client(build_server(rt)) as client:
         tools = {t.name: t for t in (await client.list_tools()).tools}
-    assert len(tools) == 95
+    assert len(tools) == 99
     for tool in tools.values():
         assert tool.annotations is not None and tool.title, tool.name
         assert tool.annotations.open_world_hint is False
@@ -103,5 +103,5 @@ async def test_request_scopes_context_limits_listing():
             denied = await client.call_tool("mb_kick_user", {"uid": 1})
     finally:
         request_scopes.reset(token)
-    assert len(tools) == 25
+    assert len(tools) == 27
     assert denied.is_error and payload(denied)["error"]["code"] == "scope_denied"

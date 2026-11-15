@@ -5,17 +5,41 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import ssl
+import time
 from collections.abc import Mapping
 from typing import Any
 
 import httpx
 
-from .config import Settings
+from .config import ConfigError, Settings
 from .errors import MikbillError, error_from_envelope, is_unauth
 
 log = logging.getLogger("mb_mcp.client")
 
 AUTH_URI = "/extjs/index/auth"
+
+# After Mikbill rejects a login, calls fail at once for this long instead of logging in again. Every tool call would
+# otherwise retry the login, and a wrong password could lock the account on the Mikbill side.
+LOGIN_COOLDOWN_SECONDS = 30.0
+
+
+def _verify(settings: Settings) -> ssl.SSLContext | bool:
+    """What httpx gets for `verify`: False (MB_INSECURE_TLS=1), an SSL context built from MB_CA_BUNDLE, or True.
+
+    httpx 0.28 deprecates a file path for `verify`, so the bundle is loaded into a context here, which also makes an
+    unreadable file a start-up error that names the variable.
+    """
+    if settings.insecure_tls:
+        log.warning("TLS verification is disabled (MB_INSECURE_TLS=1)")
+        return False
+    if settings.ca_bundle:
+        try:
+            return ssl.create_default_context(cafile=settings.ca_bundle)
+        except (OSError, ssl.SSLError) as exc:
+            reason = getattr(exc, "strerror", None) or type(exc).__name__
+            raise ConfigError(f"MB_CA_BUNDLE {settings.ca_bundle} cannot be loaded as a CA bundle: {reason}") from exc
+    return True
 
 
 class MikbillClient:
@@ -29,20 +53,17 @@ class MikbillClient:
 
     def __init__(self, settings: Settings, transport: httpx.AsyncBaseTransport | None = None) -> None:
         self._settings = settings
-        if settings.insecure_tls:
-            log.warning("TLS verification is disabled (MB_INSECURE_TLS=1)")
-            verify: Any = False
-        else:
-            verify = settings.ca_bundle or True
         self._http = httpx.AsyncClient(
             base_url=settings.base_url,
-            verify=verify,
+            verify=_verify(settings),
             timeout=httpx.Timeout(settings.read_timeout, connect=settings.connect_timeout),
             follow_redirects=False,
             transport=transport,
         )
         self._lock = asyncio.Lock()
         self._logged_in = False
+        self._generation = 0            # counts successful logins; a call that sees it change knows someone re-logged in
+        self._login_blocked_until = 0.0  # time.monotonic() until which a rejected login is not tried again
 
     async def aclose(self) -> None:
         await self._http.aclose()
@@ -55,18 +76,38 @@ class MikbillClient:
             self._logged_in = False
             raise MikbillError("auth_failed", "Mikbill rejected the login", upstream=None)
         self._logged_in = True
+        self._generation += 1
+
+    async def _login_locked(self) -> None:
+        """Log in, with the lock held. A login Mikbill rejected starts a cool-down; timeouts and server errors do not."""
+        now = time.monotonic()
+        if now < self._login_blocked_until:
+            wait = int(self._login_blocked_until - now) + 1
+            raise MikbillError("auth_failed", f"Mikbill rejected the last login; not trying again for {wait} s "
+                                              "(check MB_LOGIN and MB_PASSWORD)")
+        try:
+            await self.login()
+        except MikbillError as err:
+            if err.code == "auth_failed":
+                self._login_blocked_until = time.monotonic() + LOGIN_COOLDOWN_SECONDS
+            raise
+        self._login_blocked_until = 0.0
 
     async def _ensure_login(self) -> None:
         if self._logged_in:
             return
         async with self._lock:
             if not self._logged_in:
-                await self.login()
+                await self._login_locked()
 
-    async def _relogin(self) -> None:
+    async def _relogin(self, seen_generation: int) -> None:
+        """Log in again after a 1403, unless another call already did since `seen_generation` (one login, not one per
+        concurrent call)."""
         async with self._lock:
+            if self._generation != seen_generation and self._logged_in:
+                return
             self._logged_in = False
-            await self.login()
+            await self._login_locked()
 
     async def _post(self, uri: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
         # `maybe_applied` separates "the request never left" (no connection, no free pool slot) from "it left, or may
@@ -104,9 +145,10 @@ class MikbillClient:
         `no_success_key` accepts an envelope that has `data` but no `success` field (getticketslist2x).
         """
         await self._ensure_login()
+        generation = self._generation
         env = await self._post(uri, params)
         if is_unauth(env):
-            await self._relogin()
+            await self._relogin(generation)
             env = await self._post(uri, params)
         if allow_empty and env == {}:
             return {"success": True, "data": []}

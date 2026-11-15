@@ -5,9 +5,11 @@ The MCP server (server.py) only translates between MCP messages and Runtime.exec
 
 from __future__ import annotations
 
+import datetime
 import json
 import math
 import re
+import time
 import uuid
 from decimal import Decimal
 from typing import Any, Protocol
@@ -19,6 +21,7 @@ from .errors import MikbillError
 from .redaction import redact, redact_output
 from .schemas import (
     COUNT_FIELDS,
+    DATE_FIELDS,
     DETAIL,
     FIELD_HELP,
     FLAG_FIELDS,
@@ -27,6 +30,7 @@ from .schemas import (
     MAX_TEXT_INPUT,
     MONEY_FIELDS,
     PAYMENT_FIELDS,
+    PAYMENT_TYPE_KINDS,
     SCALAR_TYPES,
     SCHEMAS,
     SEARCH_INTERNET,
@@ -50,11 +54,23 @@ STATUS_CODES = {"open": 1, "closed": 2, "in_work": 3, "performed": 4}
 ZERO_DATE = "0000-00-00 00:00:00"
 
 # Delete tools whose targets are users: the dry-run and the result report each user's state.
+# The admin UI's operation types (bughtypeid), one list per operation form. Mikbill accepts any bughtypeid (9999 was
+# recorded as a payment with an empty type), so payments are checked against these lists before they are sent.
+PAY_TYPE_URIS = {
+    "fee": "/json/users/getpaytypeabonplatalistflex",
+    "promotion": "/json/users/getpaytypeakciyalistflex",
+    "correction": "/json/users/getpaytypepereschetlistflex",
+    "connection": "/json/users/getpaytypepodkllistflex",
+}
+PAYMENT_TYPE_TOOLS = {"mb_create_payment", "mb_bulk_payment"}
+PAY_TYPES_TTL = 300.0
+
 USER_TARGET_TOOLS = {
     "mb_delete_user", "mb_bulk_delete_users", "mb_delete_disconnected_user", "mb_delete_user_full",
     "mb_disconnect_user", "mb_freeze_user", "mb_bulk_disable_users", "mb_bulk_enable_users",
     "mb_bulk_unfreeze_users", "mb_bulk_enable_internet",
     "mb_bulk_payment", "mb_bulk_issue_credit", "mb_bulk_remove_credit",
+    "mb_receive_payment", "mb_set_credit",  # a single target: the preview shows who it is
 }
 READ_BACK_TOOLS = {"mb_delete_user", "mb_bulk_delete_users", "mb_delete_disconnected_user", "mb_disconnect_user"}
 
@@ -135,6 +151,7 @@ class Runtime:
         self.audit = audit or AuditLog(settings.audit_file)
         self._by_name = {ep.tool: ep for ep in ALL}
         self._stuff_id: int | None = None  # the session's own staff id, fetched once for ticket status changes
+        self._pay_types: tuple[float, list[dict[str, Any]]] | None = None  # (fetched at, rows) of the type lists
 
     # ---- listing -------------------------------------------------------------------------
 
@@ -165,7 +182,11 @@ class Runtime:
                                              "must match; not allowed together with states or internet."}
         if schema.row_limit:
             props["limit"] = {"type": "integer", "minimum": 1, "maximum": MAX_ROWS, "default": schema.row_limit,
-                              "description": "Most rows to return. The response says if more matched."}
+                              "description": "Most rows to return. The response says if more matched "
+                                             "(truncated, next_offset)."}
+            props["offset"] = {"type": "integer", "minimum": 0, "default": 0,
+                               "description": "Rows to skip, to read the next page: pass next_offset from a "
+                                              "truncated response."}
         if schema.summary:
             props["detail"] = {"type": "string", "enum": list(DETAIL), "default": "summary",
                                "description": "summary (default) returns these fields per row: "
@@ -214,6 +235,8 @@ class Runtime:
             return {"type": "number", "minimum": 0}
         if name in FLAG_FIELDS:
             return {"type": "integer", "enum": [0, 1]}
+        if name in DATE_FIELDS:
+            return {"type": "string", "format": "date", "pattern": r"^\d{4}-\d{2}-\d{2}$"}
         if name in ID_FIELDS or name in COUNT_FIELDS or name in schema.integers:
             return {"type": "integer", "minimum": _minimum(schema, name)}
         return {"type": SCALAR_TYPES}
@@ -269,6 +292,12 @@ class Runtime:
         if (gated or elevated) and not (isinstance(reason, str) and len(reason.strip()) >= 3):
             return _fail(MikbillError("validation", "reason is required (at least 3 characters)"))
 
+        if name in PAYMENT_TYPE_TOOLS:
+            try:
+                await self._check_payment_type(args["bughtypeid"])
+            except MikbillError as err:
+                return _fail(err)
+
         if gated and dry_run:
             try:
                 return _ok(await self._dry_run(ep, schema, args), dry_run=True)
@@ -307,7 +336,7 @@ class Runtime:
     def _validate(self, schema: ToolSchema, arguments: dict[str, Any]) -> dict[str, Any]:
         id_lists = ({"uids"} if schema.uids else set()) | ({"ticket_ids"} if schema.ticket_ids else set())
         search_args = {"states", "user_labels", "internet", "match"} if schema.user_search else set()
-        allowed = (set(schema.fields) | id_lists | search_args | ({"limit"} if schema.row_limit else set())
+        allowed = (set(schema.fields) | id_lists | search_args | ({"limit", "offset"} if schema.row_limit else set())
                    | ({"detail"} if schema.summary else set()))
         unknown = set(arguments) - allowed
         if unknown:
@@ -347,12 +376,16 @@ class Runtime:
         amount is passed on unchecked."""
         if key == "limit":
             return _whole_number(key, value, minimum=1, maximum=MAX_ROWS)
+        if key == "offset":
+            return _whole_number(key, value, minimum=0)
         if key in PAYMENT_FIELDS:
             return _amount(key, value, positive=True, maximum=self.settings.max_payment)
         if key in MONEY_FIELDS:
             return _amount(key, value)
         if key in FLAG_FIELDS:
             return _flag(key, value)
+        if key in DATE_FIELDS:
+            return _date(key, value)
         if key in ID_FIELDS or key in COUNT_FIELDS or key in schema.integers:
             return _whole_number(key, value, minimum=_minimum(schema, key))
         return _scalar(key, value)
@@ -374,7 +407,7 @@ class Runtime:
         for key, options in (("internet", SEARCH_INTERNET), ("match", SEARCH_MATCH)):
             if key in out and out[key] not in options:
                 raise MikbillError("validation", f"{key} must be one of: {', '.join(options)}")
-        filters = [k for k in out if k not in ("match", "limit", "detail")]
+        filters = [k for k in out if k not in ("match", "limit", "offset", "detail")]
         if not filters:
             raise MikbillError("validation", "at least one search filter is required (an empty search returns every "
                                              "subscriber)")
@@ -424,7 +457,7 @@ class Runtime:
     def _search_params(args: dict[str, Any]) -> dict[str, str]:
         """The searchflex form the admin UI's search tab sends. Empty filters are left out, as the UI does."""
         out: dict[str, Any] = {k: v for k, v in args.items()
-                               if k not in ("states", "user_labels", "internet", "match", "limit", "detail")}
+                               if k not in ("states", "user_labels", "internet", "match", "limit", "offset", "detail")}
         states = args.get("states") or []
         out["search_all_states"] = 0 if states else 1
         for flag in SEARCH_STATES.values():
@@ -513,7 +546,11 @@ class Runtime:
         if ep.tool in TICKET_TARGET_TOOLS and "ticket_ids" in args:
             summary["targets"] = await self._ticket_states(args["ticket_ids"])
             summary["count"] = len(args["ticket_ids"])
-        if ep.tool in ("mb_create_payment", "mb_bulk_payment"):
+        if ep.tool in PAYMENT_TYPE_TOOLS:
+            for t in await self._payment_types():
+                if t["bughtypeid"] == args["bughtypeid"]:
+                    summary["type"] = {"bughtypeid": t["bughtypeid"], "typename": t["typename"], "kind": t["kind"]}
+        if ep.tool in ("mb_create_payment", "mb_bulk_payment", "mb_receive_payment"):
             count = len(args["uids"]) if schema.uids else 1
             try:
                 summary["total_amount"] = float(args["deposit"]) * count
@@ -535,6 +572,33 @@ class Runtime:
         if warnings:
             out["warnings"] = warnings
         return out
+
+    async def _payment_types(self) -> list[dict[str, Any]]:
+        """The operation types of all four UI lists as {bughtypeid, typename, kind}, cached for a few minutes."""
+        now = time.monotonic()
+        if self._pay_types is not None and now - self._pay_types[0] < PAY_TYPES_TTL:
+            return self._pay_types[1]
+        rows: list[dict[str, Any]] = []
+        for kind in PAYMENT_TYPE_KINDS:
+            env = await self.client.call(PAY_TYPE_URIS[kind], {})
+            for row in env.get("data") or []:
+                try:
+                    type_id = int(str(row.get("bughtypeid")))
+                except (AttributeError, TypeError, ValueError):
+                    continue
+                if type_id >= 0:  # -1 is "set balance"; the tools take ids of 0 or more
+                    rows.append({"bughtypeid": type_id, "typename": str(row.get("typename") or ""), "kind": kind})
+        self._pay_types = (now, rows)
+        return rows
+
+    async def _check_payment_type(self, type_id: Any) -> None:
+        """Refuse a bughtypeid that is not one of the installation's operation types."""
+        known = await self._payment_types()
+        if not any(t["bughtypeid"] == type_id for t in known):
+            options = ", ".join(f"{t['bughtypeid']} {t['typename']}" for t in known[:40]) or "none found"
+            raise MikbillError("validation", f"bughtypeid {type_id} is not a payment type on this installation "
+                                             f"(Mikbill would record a payment with no type). Use one from "
+                                             f"mb_list_payment_types: {options}")
 
     async def _user_states(self, uids: list[int]) -> list[dict[str, Any]]:
         states = []
@@ -606,12 +670,15 @@ class Runtime:
                    reveal_identity: bool = False) -> dict[str, Any]:
         if ep.tool == "mb_restore_user":
             return await self._restore(ep, args, reveal_identity=reveal_identity)
+        if ep.tool == "mb_list_payment_types":
+            types = [t for t in await self._payment_types() if args.get("kind") in (None, t["kind"])]
+            return _ok(types, totalCount=len(types))
         if ep.tool in CHECKS and not force:
             await self._enforce_check(ep, schema, args)
         filters = {k: args[k] for k in schema.row_filters if k in args}
         limit = args.get("limit", schema.row_limit)
         params = await self._params(ep, schema, {k: v for k, v in args.items()
-                                                 if k not in filters and k not in ("limit", "detail")})
+                                                 if k not in filters and k not in ("limit", "offset", "detail")})
         env = await self._send(ep, ep.uri, params, allow_empty=schema.allow_empty,
                                no_success_key=schema.no_success_key)
         if filters:  # Mikbill ignores filter parameters for this endpoint, so filter the rows here
@@ -621,9 +688,14 @@ class Runtime:
         extra: dict[str, Any] = {}
         if limit and isinstance(env.get("data"), list):
             rows = env["data"]
-            # totalCount is the number of rows that matched, before the limit (not Mikbill's unfiltered count)
-            env = {**env, "data": rows[:limit], "totalCount": len(rows)}
-            extra["truncated"] = len(rows) > limit
+            offset = args.get("offset", 0)
+            # totalCount is the number of rows that matched, before limit and offset (not Mikbill's unfiltered count)
+            env = {**env, "data": rows[offset:offset + limit], "totalCount": len(rows)}
+            extra["truncated"] = offset + limit < len(rows)
+            if extra["truncated"]:
+                extra["next_offset"] = offset + limit
+            if offset:
+                extra["offset"] = offset
         if schema.summary and args.get("detail", "summary") != "full" and isinstance(env.get("data"), list):
             # Data minimisation: a list of subscribers returns a short row unless the caller asks for the record
             env = {**env, "data": [{k: r[k] for k in schema.summary if k in r} if isinstance(r, dict) else r
@@ -709,6 +781,17 @@ def _flag(name: str, value: Any) -> int:
     if isinstance(value, str) and value.strip() in ("0", "1"):
         return int(value.strip())
     raise MikbillError("validation", f"{name} must be 0 or 1")
+
+
+def _date(name: str, value: Any) -> str:
+    """A calendar date as YYYY-MM-DD."""
+    if isinstance(value, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", value.strip()):
+        try:
+            datetime.date.fromisoformat(value.strip())
+            return value.strip()
+        except ValueError:
+            pass
+    raise MikbillError("validation", f"{name} must be a date as YYYY-MM-DD")
 
 
 def _scalar(name: str, value: Any) -> Any:
