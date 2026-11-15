@@ -18,13 +18,13 @@ A tool is registered only when its scope is granted. Gated tools always go throu
 
 | Scope | Default | Gated | Tools | Contents |
 |---|---|---|---|---|
-| `read` | on | no | 22 | Lookups, histories, dictionaries, system options; tickets, ticket notes and logs |
+| `read` | on | no | 25 | Lookups, histories, dictionaries, system options; tickets, ticket notes and logs; ticket category, priority and performer lookups |
 | `write` | on | no | 9 | Create and edit users; add user devices; sticky notes; kick user; create and update tickets, ticket notes, ticket status |
-| `account_state` | off | yes | 13 | Freeze; bulk enable, disable, unfreeze, enable internet; disconnect; soft deletes (single, bulk, disconnected); full delete; sticky note, ticket and ticket note deletes |
+| `account_state` | off | yes | 15 | Freeze; bulk enable, disable, unfreeze, enable internet; disconnect; soft deletes (single, bulk, disconnected); restore a deleted user; full delete; sticky note, ticket, ticket note and user device deletes |
 | `finance` | off | yes | 13 | Payments (single, bulk); tariff change; flex tariff (reactivate); packet add, edit, delete; personal service set and unset; credit remove (single, bulk); credit issue (bulk); voucher use |
 | `admin` | off | yes | 32 | User groups; address objects (settlements, neighborhoods, lanes, houses); infrastructure objects (sectors, switch types, switches, device types, IP pools, real IPs, NAS). Every create, edit and delete |
 
-Total: 89 tools. Blocked and denied tools are registered (see Blocked and denied).
+Total: 94 tools. Blocked and denied tools are registered (see Blocked and denied).
 
 **Delete rule:** every delete is gated, regardless of entity type. That includes the single-user soft delete `mb_delete_user`, which was briefly a plain `write` tool and was moved back to `account_state`.
 
@@ -37,7 +37,7 @@ Total: 89 tools. Blocked and denied tools are registered (see Blocked and denied
 
 ## Tool list
 
-### read (22)
+### read (25)
 
 | Tool | Upstream | URI |
 |---|---|---|
@@ -48,7 +48,7 @@ Total: 89 tools. Blocked and denied tools are registered (see Blocked and denied
 | `mb_get_user_payment_history` | getUsersHistoryPayments | `/json/users/statpaymfl` |
 | `mb_get_user_short_history` | getUserShortHistory | `/extjs/users/usershorthistory` |
 | `mb_get_user_canvas_stat` | getUserCanvasStat | `/json/users/getusercanvasstat` |
-| `mb_get_user_devices` | getUserDevicesByUid | `/json/users/getuserdevicesbyuid` (record fields not captured) |
+| `mb_get_user_devices` | getUserDevicesByUid | `/json/users/getuserdevicesbyuid` (sent as `useruid`; `uid` returns an empty `{}`) |
 | `mb_list_dev_types` | getDevTypesList | `/json/users/getdevtypesfulllist` |
 | `mb_list_settlements` | getSettlementsList | `/json/users/settlementslist` |
 | `mb_list_neighborhoods` | getNeighborhoodsList | `/json/users/neighborhoodslist` |
@@ -63,6 +63,9 @@ Total: 89 tools. Blocked and denied tools are registered (see Blocked and denied
 | `mb_list_tickets` | none | `/extjs/ticketview/getticketslist2x` | No `success` field; filters applied to the rows by the MCP |
 | `mb_get_ticket_notes` | none | `/json/ticketview/getnotes` | ticketid |
 | `mb_get_ticket_logs` | none | `/json/ticketview/getlogs` | ticketid |
+| `mb_list_ticket_categories` | none | `/json/ticketview/getcategorieslist` | categoryid, maincategoryid, categoryname, description, color, req_* flags |
+| `mb_list_ticket_priorities` | none | `/json/ticketview/getprioritiestypeslist` | 1 high, 2 normal, 3 low |
+| `mb_list_ticket_performers` | none | `/extjs/ticketview/getPerformerList` | stuffid, login, fio |
 
 ### write (9, not gated)
 
@@ -78,7 +81,7 @@ Total: 89 tools. Blocked and denied tools are registered (see Blocked and denied
 | `mb_add_ticket_note` | none | `/extjs/ticketedit/addnote` | ticketid, note |
 | `mb_set_ticket_status` | none | `/extjs/ticketedit/putticketin` | status open, in_work, performed, closed; ticket_ids; rating with closed |
 
-### account_state (13, gated)
+### account_state (15, gated)
 
 | Tool | Upstream | URI | Param / note |
 |---|---|---|---|
@@ -93,6 +96,8 @@ Total: 89 tools. Blocked and denied tools are registered (see Blocked and denied
 | `mb_delete_disconnected_user` | none | `/json/users/deluserotklflex` | uid, gid, itog_summa, type_list=2. **Soft delete** |
 | `mb_delete_user_full` | none | `/json/users/delfulluserflex` | Denied on the demo |
 | `mb_delete_sticky_note` | none | `/extjs/users/deletestickynotesuser` | id |
+| `mb_restore_user` | none | `/json/users/enableusersmulti` or `/json/users/vkluserflex` | uid; with gid it assigns that tariff (see Restoring a deleted user) |
+| `mb_delete_user_device` | none | `/extjs/users/deleteuserdev` | uid (sent as useruid), devid from `mb_get_user_devices` |
 | `mb_delete_tickets` | none | `/extjs/ticketedit/deletetickets` | ticket_ids, sent as ticketid0, ticketid1, ... Dry-run lists the tickets |
 | `mb_delete_ticket_note` | none | `/extjs/ticketedit/deletenotes` | noteid |
 
@@ -145,7 +150,7 @@ User groups, address objects (settlements, neighborhoods, lanes, houses) and inf
 | `mb_edit_switch` | editSwitch | `/json/options/editswitchflex` | swid |
 | `mb_delete_switch` | delSwitch | `/json/options/delswitchflex` | swid |
 | `mb_add_dev_type` | addDevType | `/json/users/adddevtype` | devtypename required |
-| `mb_delete_dev_type` | none | `/json/users/deletedevtype` | devtypeid |
+| `mb_delete_dev_type` | none | `/json/users/deletedevtype` | devtypeid, **sent as `delete_list`**: a plain id is a silent no-op. A type that a device uses is refused |
 | `mb_add_ip_pool` | none | `/json/options/addippoolsflex` | poolname |
 | `mb_delete_ip_pool` | none | `/json/options/delippoolsflex` | poolname |
 | `mb_add_real_ip_block` | none | `/json/options/addrealipflex` | localip, netmask, cidrmask, hostmin, hostmax, hosts |
@@ -166,9 +171,16 @@ What the endpoints do, and what the MCP does about it:
 - **Deletes** send `ticketid0`, `ticketid1`, ... The dry-run lists each ticket with its status, category, priority, rating and creation date (no names or phone numbers), and the result shows `listed: false` for tickets that are gone. A deleted ticket cannot be restored through any endpoint found.
 - **Ticket notes** are treated as personal data: they are masked in the audit log.
 
-Not in v1: single-ticket data (`getticketdata2x`), the customer dialogue (`getmessages`, `addmessage`, `makeread`), category management, notifications, and lookup tools for categories, priorities and performers. Category ids (1 'other', 2 'connection', ...), priority ids (1 high, 2 normal, 3 low) and performer staff ids are listed in the fixture; agents currently need them from the user.
+Lookups: `mb_list_ticket_categories`, `mb_list_ticket_priorities` and `mb_list_ticket_performers` give the category, priority and performer ids that `mb_create_ticket` and `mb_update_ticket` take (`set_list` is a comma list of performer staff ids).
 
-## Delete parameters
+## Restoring a deleted user
+
+`mb_restore_user` (gated, `account_state`) brings a soft-deleted user (state 4, `deletedtable` 1) back. Two verified paths, chosen by whether a tariff is given (evidence in `fixtures/restore_devices_lookups_verified.json`):
+
+- **No `gid`: `enableusersmulti`** (`set_users_list`). The user returns to state 1 on the same tariff. It worked for users deleted by `deluserflex` and for users that were disconnected and then deleted by `deluserotklflex` (they come back to state 1, not 3).
+- **With `gid`: `vkluserflex`** (`uid`, `gid`, `itog_summa`, `type_list` 2). It works directly from the deleted state: no separate enable step. The user returns to state 1 on the given tariff. This is the way to restore a user whose tariff is gone (gid 0, tariff "Error", which is what a scheduled tariff change leaves). It can charge: the demo deposit dropped by the tariff's first daily fee.
+- **Preconditions and checks:** the user must be deleted, otherwise `precondition_failed` (`vkluserflex` on an active user fails with `DUPLICATE_LOGIN`). The dry-run shows the user's current state and which request will be sent. After the call the state is read back, and the tool fails if the user is still deleted.
+
 
 The upstream UI uses two different parameter styles for deletes. They do not behave the same:
 
@@ -177,6 +189,7 @@ The upstream UI uses two different parameter styles for deletes. They do not beh
 
 Rules for the MCP:
 - `mb_delete_house` sends `houseid` only. Never `delete_list`.
+- `mb_delete_dev_type` is the reverse of houses: a plain `devtypeid` is the silent no-op (success, nothing deleted) and `delete_list` really deletes, refusing a type that a device still uses. Found by the contract run leaking a device type each time; the tool now sends `delete_list`.
 - `mb_delete_user_group` sends `delete_list`. Dry-run must count users with that `usersgroupid` first, because the in-use check was not reproduced with `delete_list`.
 - Every delete dry-run runs the check endpoint where one exists and lists what would be affected.
 - **Mikbill does not enforce its own dependency checks for settlements, neighborhoods and lanes.** On the demo, the check endpoints report dependents ("can't delete lane with houses"; `checkdeletesettlement` returns error 2), but `dellaneflex`, `deleteneighborhood` and `deletesettlement` delete anyway and leave the houses pointing at nothing (lane name empty, neighborhood 0, settlement empty). So these three deletes stay gated in `admin`, and their dry-runs run `checkdellane`, `checkdeleteneighborhood` and `checkdeletesettlement` so the dependents are visible before approval. Moving them to `write` was considered and rejected for this reason.
@@ -187,7 +200,7 @@ Rules for the MCP:
 - Tool descriptions say "soft delete" and name the effect. The output includes the state read back after the call.
 - All three soft-delete tools (`mb_delete_user`, `mb_bulk_delete_users`, `mb_delete_disconnected_user`) are gated in `account_state`: dry-run, approval token and reason. Bulk dry-runs list every uid.
 - Dry-run shows the target uid(s), current state, and count. Bulk dry-run lists every uid.
-- Restoration is not verified. Before a restore tool is added, check how the UI restores an account. `mb_restore_user` is not in v1.
+- Restoration: see Restoring a deleted user (`mb_restore_user`).
 
 ## Blocked and denied
 
@@ -283,6 +296,7 @@ Not in v1 yet:
 ## Parameter capture and fixtures
 
 - `fixtures/writes_verified.json`: request fields, responses, and errors for each write tool run on the demo.
+- `fixtures/restore_devices_lookups_verified.json`: the ticket lookups, the device tools (`useruid`, device rows, `deleteuserdev`), the device type delete finding, and both restore paths.
 - `fixtures/tickets_verified.json`: the nine ticket tools, with the list endpoint's missing `success` field and ignored filters, and the full status request.
 - `fixtures/discovered_and_blockers.json`: discovered endpoints, blocker investigations, and demo side effects.
 - `fixtures/<method>.json`: read endpoints from the UI.
@@ -329,7 +343,7 @@ mikbill-mcp/
 
 ## Verification
 
-1. **Unit tests** (`pytest`, `respx`): login and MD5 hashing; one re-login on failure; `success: false` mapping; each error code in the mapping table, using recorded responses from the fixtures; scope registration (counts per scope: 22, 9, 13, 13, 32); dry-run makes no upstream POST; approval token single use and bound to params; bulk dry-run lists every uid; missing `reason` rejected; delete tools use the parameter listed in this spec; `mb_delete_house` never sends `delete_list`; bearer and Origin checks; redaction.
+1. **Unit tests** (`pytest`, `respx`): login and MD5 hashing; one re-login on failure; `success: false` mapping; each error code in the mapping table, using recorded responses from the fixtures; scope registration (counts per scope: 25, 9, 15, 13, 32); dry-run makes no upstream POST; approval token single use and bound to params; bulk dry-run lists every uid; missing `reason` rejected; delete tools use the parameter listed in this spec; `mb_delete_house` never sends `delete_list`; bearer and Origin checks; redaction.
 2. **Contract tests** (opt-in; demo or own test instance only, MCPTEST records only): the verified sequence through the MCP. Soft delete leaves state 4. Blocked tools return their mapped codes.
 3. **MCP inspector:** `npx @modelcontextprotocol/inspector python -m mb_mcp` lists tools per scope.
 4. **Client config check:** add to Claude Code or Claude Desktop with env vars; search a test user by `uid`.

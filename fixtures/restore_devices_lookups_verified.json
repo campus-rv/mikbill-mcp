@@ -1,0 +1,79 @@
+{
+  "captured_at": "2026-11-15",
+  "target": "https://admin.mikbill.pro (public demo). Writes were on MCPTEST records only (users 888, device types 28 to 30, device 350 and 351). All were removed or soft-deleted afterwards.",
+  "lookups": [
+    {
+      "tool": "mb_list_ticket_categories", "uri": "/json/ticketview/getcategorieslist", "scope": "read",
+      "request": [],
+      "response": "{success: true, totalCount: 13, data: [...]}",
+      "row_fields": ["categoryid", "maincategoryid", "categoryname", "description", "color", "req_uid", "req_fio", "req_phones", "req_settlement", "req_street", "req_house", "req_apartment", "req_porch", "req_floor", "req_sector", "link_to_uid"],
+      "notes": ["All values are strings. The req_* flags say which ticket fields the category requires. Names are translation keys such as 'other', 'connection', 'internet_does_not_work'; one custom name was Cyrillic."]
+    },
+    {
+      "tool": "mb_list_ticket_priorities", "uri": "/json/ticketview/getprioritiestypeslist", "scope": "read",
+      "request": [],
+      "response": "{success: true, totalCount: 3, data: [{prioritytypeid, prioritytypename}]}",
+      "notes": ["1 high, 2 normal, 3 low."]
+    },
+    {
+      "tool": "mb_list_ticket_performers", "uri": "/extjs/ticketview/getPerformerList", "scope": "read",
+      "request": [],
+      "response": "{success: true, data: [{stuffid, login, fio}]}",
+      "notes": ["No totalCount. 4 staff on the demo. The session's own login (demo, stuffid 2) is in the list."]
+    }
+  ],
+  "devices": {
+    "mb_get_user_devices": {
+      "uri": "/json/users/getuserdevicesbyuid",
+      "finding": "The parameter is useruid. With uid (as the upstream README and the first fixture used) Mikbill returns an empty {} even when the user has devices. That is why the earlier fixture had no record fields.",
+      "request": ["useruid"],
+      "response": "{success: true, error: 0, data: [device rows]}; an empty list is {success: true, data: []}",
+      "row_fields": ["cost", "devid", "devtypeid", "enabled", "owner", "partner", "rent", "sell_day", "description", "devtypename", "extra_info", "fdb_info", "type", "typename", "portal", "display_data"],
+      "also_in": "getuserdatambp data.devices has the same rows."
+    },
+    "mb_add_user_device": {
+      "uri": "/extjs/users/adduserdev",
+      "request": ["useruid", "devtypeid", "dev_mac", "device_sn", "cost", "rent", "owner", "partner"],
+      "response": "{success: true, error: 0}. The device id is not returned; read it with mb_get_user_devices.",
+      "verified": "The device appeared in getuserdevicesbyuid (devid 350 and 351) with the right devtypeid and devtypename."
+    },
+    "mb_delete_user_device": {
+      "uri": "/extjs/users/deleteuserdev",
+      "request": ["useruid", "devid"],
+      "response": "{success: true, error: 0}",
+      "errors": ["With devid alone: {success: false, error: 1, errortext: 'Абонент не найден'} (subscriber not found). useruid is required."],
+      "verified": "After the call the user's device list was empty."
+    },
+    "mb_delete_dev_type": {
+      "uri": "/json/users/deletedevtype",
+      "finding": "SILENT NO-OP with devtypeid: Mikbill answers {success: true, data: [{error: 0, delete_list: '1'}]} and deletes nothing, with or without devices. The UI's parameter is delete_list, which really deletes. The earlier contract runs used devtypeid and never checked the list, so they leaked one MCPTEST device type per run (21 to 28 were found and removed).",
+      "request": ["delete_list"],
+      "in_use": "With delete_list and a device still using the type: {success: false, error: 1, errortext: 'Невозможно удалить тип устройства так как оно все еще используется'}. After the device was removed the delete worked and the type left the list.",
+      "audit": "Every other delete in the contract suite was checked against the demo for leftovers: sectors, switches, switch types, packets, IP pools, NAS, real IPs, settlements, neighborhoods and lanes were all really deleted. Only device types had this problem."
+    }
+  },
+  "restore": {
+    "mb_restore_user": {
+      "summary": "A soft-deleted user (state 4, deletedtable 1) is restored by enableusersmulti alone, or by vkluserflex alone when a tariff should be assigned.",
+      "enableusersmulti": {
+        "uri": "/json/users/enableusersmulti", "request": ["set_users_list"],
+        "verified": [
+          "soft delete (deluserflex), then enableusersmulti: state 4 to 1, status normal, deletedtable 0, same gid and tariff.",
+          "disconnect (otkluserflex) then delete (deluserotklflex) then enableusersmulti: also back to state 1, not to the disconnected state 3.",
+          "enableusersmulti on a merely disconnected user (state 3): state 1.",
+          "A user whose gid was 0 (scheduled tariff change) stayed on gid 0 (tariff 'Error') after enableusersmulti."
+        ]
+      },
+      "vkluserflex": {
+        "uri": "/json/users/vkluserflex", "request": ["uid", "gid", "itog_summa", "type_list"],
+        "verified": [
+          "From the deleted state (4) directly: state 1, status normal, deletedtable 0, gid changed from 0 to 1 (tariff assigned). No separate enable step is needed.",
+          "The deposit dropped by 1 on that call (the tariff's first daily fee), so assigning a tariff can charge.",
+          "From a disconnected state (3) it also works (verified earlier)."
+        ],
+        "errors": ["On an active user it fails with MSG_ERROR_ABONENT_DUPLICATE_LOGIN (error 2): it only works from the deleted or disconnected state."]
+      },
+      "tool_design": "uid required, gid and itog_summa optional. Without gid: enableusersmulti. With gid: vkluserflex with itog_summa (default 0) and type_list 2. The user must be deleted (state 4) or the tool returns precondition_failed. The state is read back and the tool fails if the user is still deleted."
+    }
+  }
+}

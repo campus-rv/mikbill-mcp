@@ -20,6 +20,7 @@ MB_CONTRACT_SERVICE_ID (a personal service without a portal, default 101).
 
 from __future__ import annotations
 
+import json
 import os
 import time
 from dataclasses import replace
@@ -135,7 +136,8 @@ class Demo:
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
 async def demo():
     _guard()
-    settings = replace(Settings.from_env(), scopes=ALL)
+    base = Settings.from_env()
+    settings = replace(base, scopes=ALL, read_timeout=max(base.read_timeout, 90.0))  # the public demo can be slow
     client = MikbillClient(settings)
     d = Demo(Runtime(settings, client))
     try:
@@ -404,9 +406,88 @@ async def test_packet_device_type_group_and_network_objects(demo):
 
 # ---- tickets ---------------------------------------------------------------------------------
 
+async def test_ticket_lookups(demo):
+    cats = (await demo.ok("mb_list_ticket_categories"))["data"]
+    assert cats and {"categoryid", "maincategoryid", "categoryname"} <= set(cats[0])
+    prios = (await demo.ok("mb_list_ticket_priorities"))["data"]
+    assert {1, 2, 3} <= {int(p["prioritytypeid"]) for p in prios}
+    performers = (await demo.ok("mb_list_ticket_performers"))["data"]
+    assert performers and {"stuffid", "login"} <= set(performers[0])
+    assert await demo.rt._stuffid() in {int(p["stuffid"]) for p in performers}, "the session's own staff id is a performer"
+
+
+async def test_history_devices_and_restore(demo, house):
+    uid = await new_user(demo, house, "e")
+    password = f"MCPTEST_pw_{demo.run}e"
+
+    # the two history tools: rows come back and no plaintext credential does
+    short = await demo.ok("mb_get_user_short_history", uid=uid)
+    canvas = await demo.ok("mb_get_user_canvas_stat", uid=uid)
+    assert short["data"] and canvas["data"]
+    assert password not in json.dumps([short, canvas])
+
+    # devices: a new user has none; add one of a throwaway type; read it back
+    assert (await demo.ok("mb_get_user_devices", uid=uid))["data"] == []
+    dt_name = demo.name("DEVT")
+    await demo.gated_ok("mb_add_dev_type", devtypename=dt_name, type=0, default_cost=0, default_rent=0,
+                        default_owner=0, description="MCPTEST")
+    dtid = next(int(t["devtypeid"]) for t in (await demo.ok("mb_list_dev_types"))["data"] if t["devtypename"] == dt_name)
+    demo.defer(f"devtype {dtid}", lambda: demo.gated("mb_delete_dev_type", devtypeid=dtid))
+
+    async def type_listed() -> bool:
+        return any(int(t["devtypeid"]) == dtid for t in (await demo.ok("mb_list_dev_types"))["data"])
+
+    await demo.ok("mb_add_user_device", useruid=uid, devtypeid=dtid, dev_mac="00:00:00:00:97:01",
+                  device_sn=demo.name("SN"), cost=0, rent=0, owner=0, partner=0)
+    devices = (await demo.ok("mb_get_user_devices", uid=uid))["data"]
+    assert len(devices) == 1 and int(devices[0]["devtypeid"]) == dtid and devices[0]["devtypename"] == dt_name
+    devid = int(devices[0]["devid"])
+    # deferred after the device type, so the cleanup removes the device first (a type in use cannot be deleted)
+    demo.defer(f"device {devid}", lambda: demo.gated("mb_delete_user_device", uid=uid, devid=devid))
+
+    # a device type that a device uses cannot be deleted; deleting the device first makes it possible
+    r = await demo.gated("mb_delete_dev_type", devtypeid=dtid)
+    assert not r["ok"], "Mikbill should refuse to delete a device type that is in use"
+    assert await type_listed()
+    dry = await demo.ok("mb_delete_user_device", uid=uid, devid=devid, reason=REASON)
+    assert int(dry["data"]["summary"]["targets"][0]["devid"]) == devid
+    assert len((await demo.ok("mb_get_user_devices", uid=uid))["data"]) == 1, "dry-run removed the device"
+    await demo.gated_ok("mb_delete_user_device", uid=uid, devid=devid); demo.done(f"device {devid}")
+    assert (await demo.ok("mb_get_user_devices", uid=uid))["data"] == []
+    await demo.gated_ok("mb_delete_dev_type", devtypeid=dtid); demo.done(f"devtype {dtid}")
+    assert not await type_listed(), "the device type is still listed: the delete did not happen"
+
+    # restore: a user that is not deleted is refused
+    await demo.err("mb_restore_user", "precondition_failed", uid=uid, reason=REASON)
+
+    # restore with enableusersmulti: back to state 1 on the same tariff
+    gid_before = str((await demo.user(uid))["gid"])
+    await demo.gated_ok("mb_delete_user", uid=uid)
+    assert str((await demo.user(uid))["state"]) == "4"
+    dry = await demo.ok("mb_restore_user", uid=uid, reason=REASON)
+    assert dry["data"]["request"]["uri"] == "/json/users/enableusersmulti"
+    assert str((await demo.user(uid))["state"]) == "4", "dry-run restored the user"
+    r = await demo.gated_ok("mb_restore_user", uid=uid)
+    assert r["data"]["method"] == "enableusersmulti" and str(r["state_after"][0]["state"]) == "1"
+    restored = await demo.user(uid)
+    assert str(restored["gid"]) == gid_before and int(restored["deletedtable"]) == 0
+
+    # restore with vkluserflex: back to state 1 and on the tariff given
+    await demo.gated_ok("mb_delete_user", uid=uid)
+    gid = int(os.environ.get("MB_CONTRACT_GID", "1"))
+    r = await demo.gated_ok("mb_restore_user", uid=uid, gid=gid)
+    assert r["data"]["method"] == "vkluserflex" and str(r["state_after"][0]["state"]) == "1"
+    assert str((await demo.user(uid))["gid"]) == str(gid)
+    # the user is left active here; the deferred cleanup soft-deletes it
+
 async def test_ticket_lifecycle(demo):
+    # ids come from the lookup tools, not from guesses
+    cats = (await demo.ok("mb_list_ticket_categories"))["data"]
+    prios = (await demo.ok("mb_list_ticket_priorities"))["data"]
+    cat_a, cat_b = str(cats[0]["categoryid"]), str(cats[1]["categoryid"])
+    prio_a, prio_b = str(prios[1]["prioritytypeid"]), str(prios[0]["prioritytypeid"])
     fio = demo.name("TICKET")
-    r = await demo.ok("mb_create_ticket", categoryid=1, prioritytypeid=2, fio=fio, phones="000",
+    r = await demo.ok("mb_create_ticket", categoryid=int(cat_a), prioritytypeid=int(prio_a), fio=fio, phones="000",
                       order_number=demo.name("ORD"))
     tid = int(find(r["data"], "ticketid"))
     demo.defer(f"ticket {tid}", lambda: demo.gated("mb_delete_tickets", ticket_ids=[tid]))
@@ -421,9 +502,9 @@ async def test_ticket_lifecycle(demo):
     assert (await demo.ok("mb_list_tickets", ticketid=tid, statustypeid=2))["data"] == []
 
     # update: only the fields sent change
-    await demo.ok("mb_update_ticket", ticketid=tid, categoryid=2, prioritytypeid=1, emphasis=1)
+    await demo.ok("mb_update_ticket", ticketid=tid, categoryid=int(cat_b), prioritytypeid=int(prio_b), emphasis=1)
     t = await row()
-    assert str(t["categoryid"]) == "2" and str(t["prioritytypeid"]) == "1" and str(t["emphasis"]) == "1"
+    assert str(t["categoryid"]) == cat_b and str(t["prioritytypeid"]) == prio_b and str(t["emphasis"]) == "1"
     assert t["fio"] == fio
 
     # notes: add two, read them, delete one (gated)

@@ -1,6 +1,6 @@
 # mb-mcp
 
-MCP server for the Mikbill admin API. 89 tools in five scopes, including tickets, with dry-run and approval for everything that changes billing, account state, privileges, or deletes data. The design is in [SPEC.md](SPEC.md); per-endpoint evidence from the public demo is in [fixtures/](fixtures/).
+MCP server for the Mikbill admin API. 94 tools in five scopes, including tickets and user restore, with dry-run and approval for everything that changes billing, account state, privileges, or deletes data. The design is in [SPEC.md](SPEC.md); per-endpoint evidence from the public demo is in [fixtures/](fixtures/).
 
 ## Install and test
 
@@ -87,5 +87,5 @@ Endpoint: `http://127.0.0.1:8765/mcp` with `Authorization: Bearer <token>`. Bind
 ## Status
 
 - Implemented: client, error mapping, gating, redaction, audit, runtime, stdio and HTTP servers. 105 tests pass, including an in-memory MCP session and a real HTTP round trip.
-- The live contract suite (`tests/contract`) passes against the public Mikbill demo. All 8 tests passed on the last run (including the ticket test, after the scope changes). Not covered live: `mb_get_user_short_history`, `mb_get_user_canvas_stat`, `mb_get_user_devices`, `mb_add_user_device`. Some paths are only partly covered: `mb_use_voucher` is tested with a wrong code only, and `mb_set_personal_service` only on a service without a portal.
+- The live contract suite (`tests/contract`) passes against the public Mikbill demo. All 10 tests passed on the last run, including the tests for ticket lookups, user history, devices and restore. Some paths are only partly covered: `mb_use_voucher` is tested with a wrong code only, and `mb_set_personal_service` only on a service without a portal.
 - Open items are listed in SPEC.md ("Blocked and denied", "Discovered endpoints").

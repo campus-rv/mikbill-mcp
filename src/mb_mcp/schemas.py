@@ -48,7 +48,8 @@ SCHEMAS: dict[str, ToolSchema] = {
     "mb_get_user_payment_history": _S(("uid",), ("from_date", "to_date")),
     "mb_get_user_short_history": _S(("uid",)),
     "mb_get_user_canvas_stat": _S(("uid",)),
-    "mb_get_user_devices": _S(("uid",), allow_empty=True),
+    # Mikbill wants the parameter named useruid here; `uid` returns an empty {} even when the user has devices.
+    "mb_get_user_devices": _S(("uid",), rename={"uid": "useruid"}, allow_empty=True),
     "mb_list_dev_types": _S(),
     "mb_list_settlements": _S(),
     "mb_list_neighborhoods": _S(),
@@ -113,7 +114,8 @@ SCHEMAS: dict[str, ToolSchema] = {
     "mb_delete_switch": _S(("swid",)),
     "mb_delete_switch_type": _S(("swtypeid",)),
     "mb_delete_sticky_note": _S(("id",)),
-    "mb_delete_dev_type": _S(("devtypeid",)),
+    # devtypeid is a silent no-op (success, nothing deleted); the UI's delete_list really deletes and enforces "in use".
+    "mb_delete_dev_type": _S(("devtypeid",), rename={"devtypeid": "delete_list"}),
     "mb_delete_settlement": _S(("settlementid",)),
     "mb_delete_neighborhood": _S(("neighborhoodid",)),
     "mb_delete_lane": _S(("laneid",)),
@@ -121,6 +123,9 @@ SCHEMAS: dict[str, ToolSchema] = {
     "mb_delete_ip_pool": _S(("poolname",)),
     "mb_delete_real_ip": _S(("real",)),
     "mb_delete_nas": _S(("nasid",)),
+    "mb_delete_user_device": _S(("uid", "devid"), rename={"uid": "useruid"}),
+    # Restore: runtime picks enableusersmulti (no gid) or vkluserflex (with gid), see Runtime._restore_plan.
+    "mb_restore_user": _S(("uid",), ("gid", "itog_summa")),
     # ---- finance ----
     "mb_create_payment": _S(("uid", "bughtypeid", "deposit", "prim2")),
     "mb_bulk_payment": _S(("bughtypeid", "deposit", "prim2"), uids=True),
@@ -151,6 +156,9 @@ SCHEMAS: dict[str, ToolSchema] = {
                           no_success_key=True),
     "mb_get_ticket_notes": _S(("ticketid",)),
     "mb_get_ticket_logs": _S(("ticketid",)),
+    "mb_list_ticket_categories": _S(),
+    "mb_list_ticket_priorities": _S(),
+    "mb_list_ticket_performers": _S(),
     "mb_create_ticket": _S(
         ("categoryid", "prioritytypeid"),
         ("fio", "phones", "app", "useruid", "emphasis", "show_ticket_to_user", "order_number", "performafter",

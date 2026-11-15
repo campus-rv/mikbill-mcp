@@ -53,7 +53,8 @@ READ: list[Endpoint] = [
     Endpoint("mb_get_user_canvas_stat", "getUserCanvasStat", "/json/users/getusercanvasstat", "read",
              note="Upstream marks 'Old'. Redact postauth pass."),
     Endpoint("mb_get_user_devices", "getUserDevicesByUid", "/json/users/getuserdevicesbyuid", "read",
-             status="planned", note="Record fields not captured (no devices on the demo subscriber)."),
+             note="Sent to Mikbill as useruid: with the name uid (as the upstream README does) it returns an empty "
+                  "{} even when the user has devices."),
     Endpoint("mb_list_dev_types", "getDevTypesList", "/json/users/getdevtypesfulllist", "read"),
     Endpoint("mb_list_settlements", "getSettlementsList", "/json/users/settlementslist", "read"),
     Endpoint("mb_list_neighborhoods", "getNeighborhoodsList", "/json/users/neighborhoodslist", "read"),
@@ -71,6 +72,13 @@ READ: list[Endpoint] = [
                   "statustypeid, categoryid, prioritytypeid and ticketid are applied to the rows."),
     Endpoint("mb_get_ticket_notes", None, "/json/ticketview/getnotes", "read", note="ticketid."),
     Endpoint("mb_get_ticket_logs", None, "/json/ticketview/getlogs", "read", note="ticketid."),
+    Endpoint("mb_list_ticket_categories", None, "/json/ticketview/getcategorieslist", "read",
+             note="Ticket categories: categoryid, maincategoryid, categoryname, description, color and the req_* "
+                  "flags for which ticket fields the category requires."),
+    Endpoint("mb_list_ticket_priorities", None, "/json/ticketview/getprioritiestypeslist", "read",
+             note="Ticket priorities: prioritytypeid, prioritytypename."),
+    Endpoint("mb_list_ticket_performers", None, "/extjs/ticketview/getPerformerList", "read",
+             note="Staff who can be ticket performers: stuffid, login, fio."),
 ]
 
 # ---- write (9, not gated) ----------------------------------------------------------------
@@ -119,6 +127,12 @@ ACCOUNT_STATE: list[Endpoint] = [
              status="denied", note="'Denied by settings' on the demo. Maps to denied_by_settings."),
     Endpoint("mb_delete_sticky_note", None, "/extjs/users/deletestickynotesuser", "account_state", gated=True,
              note="id."),
+    Endpoint("mb_restore_user", None, "/json/users/enableusersmulti", "account_state", gated=True,
+             note="Restores a soft-deleted user (state 4). Without gid it uses enableusersmulti and the user keeps "
+                  "the old tariff. With gid it uses vkluserflex and also puts the user on that tariff, which can "
+                  "charge the tariff's first fee. Only for deleted users."),
+    Endpoint("mb_delete_user_device", None, "/extjs/users/deleteuserdev", "account_state", gated=True,
+             note="uid (sent as useruid) and devid from mb_get_user_devices."),
     Endpoint("mb_delete_tickets", None, "/extjs/ticketedit/deletetickets", "account_state", gated=True,
              note="ticket_ids; sent as ticketid0, ticketid1, ... The dry-run lists the tickets."),
     Endpoint("mb_delete_ticket_note", None, "/extjs/ticketedit/deletenotes", "account_state", gated=True,
@@ -203,7 +217,8 @@ ADMIN: list[Endpoint] = [
     Endpoint("mb_add_dev_type", "addDevType", "/json/users/adddevtype", "admin", gated=True,
              note="Requires devtypename. Calling with no params still returns success."),
     Endpoint("mb_delete_dev_type", None, "/json/users/deletedevtype", "admin", gated=True,
-             note="devtypeid."),
+             note="devtypeid, sent as delete_list. With a plain devtypeid Mikbill answers success and deletes "
+                  "nothing. A type still used by a device is refused."),
     # IP pools, real IPs, NAS
     Endpoint("mb_add_ip_pool", None, "/json/options/addippoolsflex", "admin", gated=True,
              note="poolname. Verified (created MCPTEST_POOL)."),

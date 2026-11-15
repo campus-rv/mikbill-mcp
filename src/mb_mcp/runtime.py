@@ -19,6 +19,11 @@ from .schemas import SCALAR_TYPES, SCHEMAS, ToolSchema
 USER_URI = "/json/users/getuserdatambp"
 USER_STATE_KEYS = ("useruid", "user", "state", "status", "deletedtable")
 
+ENABLE_USERS_URI = "/json/users/enableusersmulti"
+VKL_URI = "/json/users/vkluserflex"
+DEVICES_URI = "/json/users/getuserdevicesbyuid"
+DEVICE_KEYS = ("devid", "devtypeid", "devtypename", "enabled", "cost", "rent", "sell_day")
+
 TICKET_LIST_URI = "/extjs/ticketview/getticketslist2x"
 STUFF_URI = "/json/index/getstuffproper"
 TICKET_STATE_KEYS = ("statustypeid", "categoryid", "prioritytypeid", "rating", "creationdate")
@@ -60,6 +65,11 @@ WARNINGS: dict[str, str] = {
     "mb_use_voucher": "A valid voucher code adds its nominal to the balance.",
     "mb_change_tariff": "The change is scheduled, not applied: the user's gid reads 0 until it takes effect, and "
                         "personal-service calls fail with precondition_failed in the meantime.",
+    "mb_restore_user": "Re-enables a soft-deleted account. With gid it also assigns that tariff, which can charge the "
+                       "tariff's first fee. The user must currently be deleted (state 4).",
+    "mb_delete_user_device": "Removes the device from the subscriber. Use mb_get_user_devices for the devid.",
+    "mb_delete_dev_type": "Sent as delete_list: a plain id makes Mikbill answer success without deleting. A device "
+                          "type that a device still uses is refused.",
     "mb_delete_tickets": "Deletes the tickets listed in the preview. This cannot be undone.",
     "mb_delete_ticket_note": "Deletes one ticket note. This cannot be undone.",
 }
@@ -283,9 +293,17 @@ class Runtime:
     # ---- dry run -------------------------------------------------------------------------
 
     async def _dry_run(self, ep: Endpoint, schema: ToolSchema, args: dict[str, Any]) -> dict[str, Any]:
-        params = await self._params(ep, schema, args)
         summary: dict[str, Any] = {}
         warnings: list[str] = []
+        uri = ep.uri
+        if ep.tool == "mb_restore_user":
+            uri, params, before = await self._restore_plan(args)
+            summary["targets"] = [before]
+            summary["count"] = 1
+        else:
+            params = await self._params(ep, schema, args)
+        if ep.tool == "mb_delete_user_device":
+            summary["targets"] = await self._device_targets(args["uid"], [args["devid"]])
         if ep.tool in WARNINGS:
             warnings.append(WARNINGS[ep.tool])
         if ep.status in ("blocked", "denied"):
@@ -314,7 +332,7 @@ class Runtime:
         out: dict[str, Any] = {
             "tool": ep.tool,
             "scope": ep.scope,
-            "request": {"method": "POST", "uri": ep.uri, "params": redact(params)},
+            "request": {"method": "POST", "uri": uri, "params": redact(params)},
             "summary": summary,
             "approval_token": token,
             "expires_in_seconds": int(self.approvals.ttl),
@@ -336,7 +354,43 @@ class Runtime:
 
     # ---- run -----------------------------------------------------------------------------
 
+    async def _restore_plan(self, args: dict[str, Any]) -> tuple[str, dict[str, str], dict[str, Any]]:
+        """Which request restores the user: enableusersmulti (same tariff) or vkluserflex (assign a tariff).
+
+        Both were verified on the demo to turn a soft-deleted user (state 4) back into state 1.
+        """
+        uid = args["uid"]
+        before = (await self._user_states([uid]))[0]
+        if "error" in before:
+            raise MikbillError(before["error"]["code"], before["error"]["message"])
+        if str(before.get("state")) != "4" and str(before.get("deletedtable")) != "1":
+            raise MikbillError("precondition_failed",
+                               f"user {uid} is not deleted (state {before.get('state')}, status {before.get('status')})")
+        if "gid" in args:
+            return VKL_URI, {"uid": str(uid), "gid": str(args["gid"]), "itog_summa": str(args.get("itog_summa", 0)),
+                             "type_list": "2"}, before
+        if "itog_summa" in args:
+            raise MikbillError("validation", "itog_summa is only used together with gid")
+        return ENABLE_USERS_URI, {"set_users_list": str(uid)}, before
+
+    async def _restore(self, args: dict[str, Any]) -> dict[str, Any]:
+        uri, params, before = await self._restore_plan(args)
+        await self.client.call(uri, params)
+        after = (await self._user_states([args["uid"]]))[0]
+        if str(after.get("state")) == "4":
+            raise MikbillError("upstream_error", "Mikbill reported success but the user is still deleted")
+        method = "vkluserflex" if uri == VKL_URI else "enableusersmulti"
+        return _ok({"restored": True, "method": method}, state_before=[before], state_after=[after])
+
+    async def _device_targets(self, uid: int, devids: list[int]) -> list[dict[str, Any]]:
+        env = await self.client.call(DEVICES_URI, {"useruid": str(uid)}, allow_empty=True)
+        rows = {str(r.get("devid")): r for r in (env.get("data") or []) if isinstance(r, dict)}
+        return [{k: rows[str(d)].get(k) for k in DEVICE_KEYS} if str(d) in rows else {"devid": d, "listed": False}
+                for d in devids]
+
     async def _run(self, ep: Endpoint, schema: ToolSchema, args: dict[str, Any]) -> dict[str, Any]:
+        if ep.tool == "mb_restore_user":
+            return await self._restore(args)
         filters = {k: args[k] for k in schema.row_filters if k in args}
         params = await self._params(ep, schema, {k: v for k, v in args.items() if k not in filters})
         env = await self.client.call(ep.uri, params, allow_empty=schema.allow_empty,
