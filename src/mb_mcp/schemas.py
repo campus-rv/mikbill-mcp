@@ -22,6 +22,10 @@ class ToolSchema:
     rename: dict[str, str] = field(default_factory=dict)
     uids: bool = False          # tool takes `uids` (array of integers), sent as set_users_list
     allow_empty: bool = False   # an empty {} body from Mikbill means "no rows"
+    ticket_ids: str | None = None   # tool takes `ticket_ids`: "set_list" (set_list=1,2) or "enumerate" (ticketid0=1, ...)
+    enums: dict[str, tuple[Any, ...]] = field(default_factory=dict)  # allowed values per argument
+    row_filters: tuple[str, ...] = ()   # optional arguments applied to the returned rows, never sent to Mikbill
+    no_success_key: bool = False        # the response has `data` but no `success` field
 
     @property
     def fields(self) -> tuple[str, ...]:
@@ -140,4 +144,26 @@ SCHEMAS: dict[str, ToolSchema] = {
     "mb_add_ip_pool": _S(("poolname",)),
     "mb_add_real_ip_block": _S(("localip", "netmask", "cidrmask", "hostmin", "hostmax", "hosts")),
     "mb_add_nas": _S(("nasname", "nasip"), ("secret", "shortname")),
+    # ---- tickets ----
+    # getticketslist2x has no `success` field and ignores filter parameters, so the filters are applied to the rows.
+    "mb_list_tickets": _S((), ("statustypeid", "categoryid", "prioritytypeid", "ticketid"),
+                          row_filters=("statustypeid", "categoryid", "prioritytypeid", "ticketid"),
+                          no_success_key=True),
+    "mb_get_ticket_notes": _S(("ticketid",)),
+    "mb_get_ticket_logs": _S(("ticketid",)),
+    "mb_create_ticket": _S(
+        ("categoryid", "prioritytypeid"),
+        ("fio", "phones", "app", "useruid", "emphasis", "show_ticket_to_user", "order_number", "performafter",
+         "performbefore", "set_list"),
+        defaults={"fio": "", "phones": "", "app": ""}),
+    "mb_update_ticket": _S(
+        ("ticketid",),
+        ("fio", "categoryid", "prioritytypeid", "phones", "useruid", "emphasis", "show_ticket_to_user",
+         "order_number", "performafter", "performbefore", "set_list")),
+    "mb_add_ticket_note": _S(("ticketid", "note")),
+    # The status request is assembled by the runtime (it needs the acting staff id), see Runtime._status_params.
+    "mb_set_ticket_status": _S(("status",), ("rating",), ticket_ids="set_list",
+                               enums={"status": ("open", "in_work", "performed", "closed"), "rating": (1, 2, 3, 4, 5)}),
+    "mb_delete_tickets": _S(ticket_ids="enumerate"),
+    "mb_delete_ticket_note": _S(("noteid",)),
 }

@@ -7,8 +7,8 @@ from mb_mcp.schemas import SCHEMAS
 
 def test_tool_counts_per_scope():
     counts = Counter(ep.scope for ep in ALL)
-    assert counts == {"read": 19, "write": 5, "account_state": 11, "finance": 13, "admin": 32}
-    assert len(ALL) == 80
+    assert counts == {"read": 22, "write": 9, "account_state": 13, "finance": 13, "admin": 32}
+    assert len(ALL) == 89
 
 
 def test_names_and_uris_are_sane():
@@ -71,9 +71,12 @@ def test_address_and_infrastructure_objects_are_gated_admin_for_create_edit_and_
             assert f"mb_{verb}_{obj}" in by_name, (verb, obj)
 
 
-def test_write_scope_is_only_users_devices_notes_and_kick():
+def test_write_scope_is_only_users_devices_notes_kick_and_tickets():
     write = {ep.tool for ep in ALL if ep.scope == "write"}
-    assert write == {"mb_create_user", "mb_update_user", "mb_kick_user", "mb_create_sticky_note", "mb_add_user_device"}
+    assert write == {
+        "mb_create_user", "mb_update_user", "mb_kick_user", "mb_create_sticky_note", "mb_add_user_device",
+        "mb_create_ticket", "mb_update_ticket", "mb_add_ticket_note", "mb_set_ticket_status",
+    }
     assert all(not ep.gated for ep in ALL if ep.scope == "write")
 
 

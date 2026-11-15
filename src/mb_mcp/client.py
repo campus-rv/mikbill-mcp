@@ -84,10 +84,12 @@ class MikbillClient:
             raise MikbillError("upstream_error", f"unexpected JSON type from {uri}", status=resp.status_code)
         return body
 
-    async def call(self, uri: str, params: Mapping[str, Any] | None = None, *, allow_empty: bool = False) -> dict[str, Any]:
+    async def call(self, uri: str, params: Mapping[str, Any] | None = None, *, allow_empty: bool = False,
+                   no_success_key: bool = False) -> dict[str, Any]:
         """Call `uri` and return the successful envelope. Raises MikbillError otherwise.
 
         `allow_empty` treats an empty `{}` body as an empty success (used by getuserdevicesbyuid).
+        `no_success_key` accepts an envelope that has `data` but no `success` field (getticketslist2x).
         """
         await self._ensure_login()
         env = await self._post(uri, params)
@@ -96,6 +98,8 @@ class MikbillClient:
             env = await self._post(uri, params)
         if allow_empty and env == {}:
             return {"success": True, "data": []}
+        if no_success_key and "success" not in env and "data" in env:
+            return {"success": True, **env}
         err = error_from_envelope(env)
         if err is not None:
             raise err

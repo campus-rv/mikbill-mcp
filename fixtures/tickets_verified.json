@@ -1,0 +1,83 @@
+{
+  "captured_at": "2026-11-15",
+  "target": "https://admin.mikbill.pro (public demo). All writes were MCPTEST tickets (ids 59 to 62), deleted afterwards. Nothing from this capture remains.",
+  "encoding": "application/x-www-form-urlencoded, POST",
+  "tools": [
+    {
+      "tool": "mb_list_tickets", "uri": "/extjs/ticketview/getticketslist2x", "scope": "read",
+      "request": [],
+      "response": "{data: [ticket rows], counters: {status: {1..4}, priority: {1..3}, category: {1..13}}}. NO `success` field and no totalCount.",
+      "row_fields": ["prioritytypeid", "categoryid", "statustypeid", "fio", "rating", "ticketid", "creationdate", "performafter", "performbefore", "performingdate", "useruid", "created_by_stuffid", "created_by_useruid", "categoryname", "prioritytypename", "statustypename", "emphasis", "dialogue", "phones", "online", "address", "ticketid_emphasis", "last_message_date", "notes"],
+      "notes": [
+        "Filter parameters (statustypeid, categoryid, prioritytypeid, ticketid, limit/page/start) are IGNORED: every call returned all tickets. The MCP applies its optional filters to the rows.",
+        "Each row embeds its notes: [{noteid, date, ticketid, stuffid, stuffname, note}].",
+        "The demo had 0 tickets before this capture; the counters are all zero in that case."
+      ]
+    },
+    {
+      "tool": "mb_get_ticket_notes", "uri": "/json/ticketview/getnotes", "scope": "read",
+      "request": ["ticketid"],
+      "response": "{success: true, data: [{noteid, date, ticketid, stuffid, note}]}"
+    },
+    {
+      "tool": "mb_get_ticket_logs", "uri": "/json/ticketview/getlogs", "scope": "read",
+      "request": ["ticketid"],
+      "response": "{success: true, data: [{ticketlogid, ticketid, stuffid, logdate, record}]}",
+      "notes": ["A new ticket already has log entries (8 on the demo)."]
+    },
+    {
+      "tool": "mb_create_ticket", "uri": "/extjs/ticketedit/setticket2x", "scope": "write",
+      "request": ["categoryid", "prioritytypeid", "fio", "phones", "app", "useruid", "emphasis", "show_ticket_to_user", "order_number", "performafter", "performbefore", "set_list"],
+      "required": ["categoryid", "prioritytypeid"],
+      "response": "{success: true, data: [{ticketid}], error: 0}",
+      "notes": [
+        "The creator (created_by_stuffid) and note authors are taken from the session. employed_by_stuffid and note_author, which the UI sends, are not needed.",
+        "useruid links the ticket to a subscriber; the ticket's address then comes from the user's house.",
+        "performafter and performbefore are 'YYYY-MM-DD HH:MM:SS'. set_list is a comma list of performer staff ids.",
+        "Lookup values: categories from /json/ticketview/getcategorieslist (13 on the demo, ids 1 'other', 2 'connection', ...), priorities from /json/ticketview/getprioritiestypeslist (1 high, 2 normal, 3 low), performers from /extjs/ticketview/getPerformerList. No MCP tools for these lookups yet."
+      ]
+    },
+    {
+      "tool": "mb_update_ticket", "uri": "/extjs/ticketedit/setticket2x", "scope": "write",
+      "request": ["ticketid", "fio", "categoryid", "prioritytypeid", "phones", "useruid", "emphasis", "show_ticket_to_user", "order_number", "performafter", "performbefore", "set_list"],
+      "response": "{success: true, data: [{ticketid}], error: 0}",
+      "notes": ["Same endpoint as create. With ticketid it edits, and only the fields sent change: sending emphasis alone left fio and categoryid as they were.", "Changing phones on a ticket without a linked user did not show in the list row."]
+    },
+    {
+      "tool": "mb_add_ticket_note", "uri": "/extjs/ticketedit/addnote", "scope": "write",
+      "request": ["ticketid", "note"],
+      "response": "{success: true, error: 0}. The note id is not returned; read it with mb_get_ticket_notes."
+    },
+    {
+      "tool": "mb_set_ticket_status", "uri": "/extjs/ticketedit/putticketin", "scope": "write",
+      "request": ["set_list", "statustypeid", "rating", "closingdate", "inworkdate", "performingdate", "performed_by_stuffid", "inwork_by_stuffid", "closed_by_stuffid", "performed_without_on_site_visit", "can_not_be_performed"],
+      "status_codes": {"1": "open", "2": "closed", "3": "in work", "4": "performed"},
+      "response": "{success: true, error: 0}",
+      "notes": [
+        "set_list is a comma list of ticket ids, so one call changes several tickets.",
+        "A minimal request {set_list, statustypeid} works for status 1 only. For 2, 3 and 4 it returns error 1202. The admin UI sends the full parameter set below, and the MCP sends the same, filled with the session's staff id (data.stuff_propers.stuffid from /json/index/getstuffproper).",
+        "open (1): closingdate, inworkdate, performingdate = 0000-00-00 00:00:00; performed_by_stuffid = me; closed_by_stuffid, inwork_by_stuffid, performed_without_on_site_visit, can_not_be_performed = 0.",
+        "in work (3): closingdate, performingdate = zero date; inwork_by_stuffid = me; performed_by_stuffid, closed_by_stuffid = 0.",
+        "performed (4): closingdate = zero date; performed_by_stuffid = me; inwork_by_stuffid, closed_by_stuffid = 0.",
+        "closed (2): closed_by_stuffid = me and rating (0 to 5). Verified: the list then showed status 2 and rating 5.",
+        "All four transitions were verified from open to in work to performed to closed and back to open."
+      ]
+    },
+    {
+      "tool": "mb_delete_tickets", "uri": "/extjs/ticketedit/deletetickets", "scope": "account_state (gated)",
+      "request": ["ticketid0", "ticketid1", "..."],
+      "response": "{success: true, data: [], error: 0}",
+      "notes": ["The UI sends ticketid0, ticketid1, ... (one numbered parameter per ticket). Two tickets were deleted in one call and then no longer listed.", "Deleted tickets cannot be restored through any endpoint found."]
+    },
+    {
+      "tool": "mb_delete_ticket_note", "uri": "/extjs/ticketedit/deletenotes", "scope": "account_state (gated)",
+      "request": ["noteid"],
+      "response": "{success: true, error: 0}",
+      "notes": ["Verified: the note was gone from getnotes afterwards."]
+    }
+  ],
+  "not_covered": [
+    "Other ticket endpoints found in the admin UI: /json/ticketview/getticketdata2x (one ticket), /extjs/ticketview/getmessages and /extjs/ticketedit/addmessage (customer dialogue), /extjs/ticketedit/makeread, category management (addcategory, updatecategory, deletecategories), /extjs/ticketview/getNotifications.",
+    "The remove-from-work action (widgetwindowticketremovefromthework) was not separately captured; status 1 covers taking a ticket back."
+  ]
+}

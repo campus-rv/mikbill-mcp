@@ -402,6 +402,55 @@ async def test_packet_device_type_group_and_network_objects(demo):
     await demo.gated_ok("mb_delete_switch_type", swtypeid=stid); demo.done(f"switch type {stid}")
 
 
+# ---- tickets ---------------------------------------------------------------------------------
+
+async def test_ticket_lifecycle(demo):
+    fio = demo.name("TICKET")
+    r = await demo.ok("mb_create_ticket", categoryid=1, prioritytypeid=2, fio=fio, phones="000",
+                      order_number=demo.name("ORD"))
+    tid = int(find(r["data"], "ticketid"))
+    demo.defer(f"ticket {tid}", lambda: demo.gated("mb_delete_tickets", ticket_ids=[tid]))
+
+    async def row():
+        rows = (await demo.ok("mb_list_tickets", ticketid=tid))["data"]
+        return rows[0] if rows else None
+
+    # list and row filters (Mikbill ignores filter parameters; the MCP filters the rows)
+    t = await row()
+    assert t and t["fio"] == fio and str(t["statustypeid"]) == "1"
+    assert (await demo.ok("mb_list_tickets", ticketid=tid, statustypeid=2))["data"] == []
+
+    # update: only the fields sent change
+    await demo.ok("mb_update_ticket", ticketid=tid, categoryid=2, prioritytypeid=1, emphasis=1)
+    t = await row()
+    assert str(t["categoryid"]) == "2" and str(t["prioritytypeid"]) == "1" and str(t["emphasis"]) == "1"
+    assert t["fio"] == fio
+
+    # notes: add two, read them, delete one (gated)
+    await demo.ok("mb_add_ticket_note", ticketid=tid, note="MCPTEST note A")
+    await demo.ok("mb_add_ticket_note", ticketid=tid, note="MCPTEST note B")
+    notes = (await demo.ok("mb_get_ticket_notes", ticketid=tid))["data"]
+    assert {n["note"] for n in notes} == {"MCPTEST note A", "MCPTEST note B"}
+    await demo.gated_ok("mb_delete_ticket_note", noteid=int(notes[0]["noteid"]))
+    assert len((await demo.ok("mb_get_ticket_notes", ticketid=tid))["data"]) == 1
+    assert (await demo.ok("mb_get_ticket_logs", ticketid=tid))["data"], "a new ticket has log entries"
+
+    # status changes, read back from the list
+    for status, code in (("in_work", "3"), ("performed", "4"), ("closed", "2"), ("open", "1")):
+        extra = {"rating": 5} if status == "closed" else {}
+        r = await demo.ok("mb_set_ticket_status", status=status, ticket_ids=[tid], **extra)
+        assert str(r["state_after"][0]["statustypeid"]) == code, (status, r["state_after"])
+        if status == "closed":
+            assert str(r["state_after"][0]["rating"]) == "5"
+
+    # delete: the dry-run lists the ticket and changes nothing; the executed call removes it
+    dry = await demo.ok("mb_delete_tickets", ticket_ids=[tid], reason=REASON)
+    assert dry["data"]["summary"]["targets"][0]["ticketid"] == tid
+    assert await row() is not None, "dry-run deleted the ticket"
+    await demo.gated_ok("mb_delete_tickets", ticket_ids=[tid]); demo.done(f"ticket {tid}")
+    assert await row() is None
+
+
 async def test_cleanup_left_nothing_pending(demo):
     """Runs last: anything still deferred was not deleted by the test body (the fixture removes it afterwards)."""
     await demo.run_cleanup()

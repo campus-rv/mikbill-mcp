@@ -27,16 +27,16 @@ async def test_list_tools_by_scope():
     rt, _ = make({"read", "write"})
     async with Client(build_server(rt)) as client:
         tools = (await client.list_tools()).tools
-    assert len(tools) == 24
+    assert len(tools) == 31
     names = {t.name for t in tools}
     assert "mb_kick_user" in names and "mb_delete_user" not in names and "mb_add_house" not in names
 
 
-async def test_all_scopes_list_80_tools_with_schemas():
+async def test_all_scopes_list_89_tools_with_schemas():
     rt, _ = make(ALL_SCOPES)
     async with Client(build_server(rt)) as client:
         tools = (await client.list_tools()).tools
-    assert len(tools) == 80
+    assert len(tools) == 89
     by_name = {t.name: t for t in tools}
     gated = by_name["mb_create_payment"].input_schema
     assert "dry_run" in gated["properties"] and "reason" in gated["required"]
@@ -83,5 +83,5 @@ async def test_request_scopes_context_limits_listing():
             denied = await client.call_tool("mb_kick_user", {"uid": 1})
     finally:
         request_scopes.reset(token)
-    assert len(tools) == 19
+    assert len(tools) == 22
     assert denied.is_error and payload(denied)["error"]["code"] == "scope_denied"

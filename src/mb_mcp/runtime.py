@@ -19,6 +19,13 @@ from .schemas import SCALAR_TYPES, SCHEMAS, ToolSchema
 USER_URI = "/json/users/getuserdatambp"
 USER_STATE_KEYS = ("useruid", "user", "state", "status", "deletedtable")
 
+TICKET_LIST_URI = "/extjs/ticketview/getticketslist2x"
+STUFF_URI = "/json/index/getstuffproper"
+TICKET_STATE_KEYS = ("statustypeid", "categoryid", "prioritytypeid", "rating", "creationdate")
+TICKET_TARGET_TOOLS = {"mb_set_ticket_status", "mb_delete_tickets"}
+STATUS_CODES = {"open": 1, "closed": 2, "in_work": 3, "performed": 4}
+ZERO_DATE = "0000-00-00 00:00:00"
+
 # Delete tools whose targets are users: the dry-run and the result report each user's state.
 USER_TARGET_TOOLS = {
     "mb_delete_user", "mb_bulk_delete_users", "mb_delete_disconnected_user", "mb_delete_user_full",
@@ -53,11 +60,14 @@ WARNINGS: dict[str, str] = {
     "mb_use_voucher": "A valid voucher code adds its nominal to the balance.",
     "mb_change_tariff": "The change is scheduled, not applied: the user's gid reads 0 until it takes effect, and "
                         "personal-service calls fail with precondition_failed in the meantime.",
+    "mb_delete_tickets": "Deletes the tickets listed in the preview. This cannot be undone.",
+    "mb_delete_ticket_note": "Deletes one ticket note. This cannot be undone.",
 }
 
 
 class ClientLike(Protocol):
-    async def call(self, uri: str, params: dict[str, Any] | None = None, *, allow_empty: bool = False) -> dict[str, Any]:
+    async def call(self, uri: str, params: dict[str, Any] | None = None, *, allow_empty: bool = False,
+                   no_success_key: bool = False) -> dict[str, Any]:
         ...
 
 
@@ -77,6 +87,7 @@ class Runtime:
         self.approvals = approvals or ApprovalStore()
         self.audit = audit or AuditLog(settings.audit_file)
         self._by_name = {ep.tool: ep for ep in ALL}
+        self._stuff_id: int | None = None  # the session's own staff id, fetched once for ticket status changes
 
     # ---- listing -------------------------------------------------------------------------
 
@@ -88,7 +99,14 @@ class Runtime:
         """MCP tool definition: name, description, inputSchema."""
         schema = SCHEMAS[ep.tool]
         props: dict[str, Any] = {f: {"type": SCALAR_TYPES} for f in schema.fields}
+        for key, options in schema.enums.items():
+            props[key] = {"type": "string" if isinstance(options[0], str) else "integer", "enum": list(options)}
         required = list(schema.required)
+        if schema.ticket_ids:
+            props["ticket_ids"] = {"type": "array", "items": {"type": "integer"}, "minItems": 1,
+                                   "maxItems": self.settings.max_bulk, "uniqueItems": True,
+                                   "description": "Ticket ids."}
+            required.append("ticket_ids")
         if schema.uids:
             props["uids"] = {"type": "array", "items": {"type": "integer"}, "minItems": 1,
                              "maxItems": self.settings.max_bulk, "uniqueItems": True,
@@ -160,32 +178,35 @@ class Runtime:
     # ---- validation ----------------------------------------------------------------------
 
     def _validate(self, schema: ToolSchema, arguments: dict[str, Any]) -> dict[str, Any]:
-        allowed = set(schema.fields) | ({"uids"} if schema.uids else set())
+        id_lists = ({"uids"} if schema.uids else set()) | ({"ticket_ids"} if schema.ticket_ids else set())
+        allowed = set(schema.fields) | id_lists
         unknown = set(arguments) - allowed
         if unknown:
             raise MikbillError("validation", f"unknown parameters: {', '.join(sorted(unknown))}")
         missing = [f for f in schema.required if arguments.get(f) in (None, "")]
-        if schema.uids and not arguments.get("uids"):
-            missing.append("uids")
+        missing += [name for name in sorted(id_lists) if not arguments.get(name)]
         if missing:
             raise MikbillError("validation", f"missing required parameters: {', '.join(missing)}")
         out: dict[str, Any] = {}
         for key, value in arguments.items():
-            if key == "uids":
-                out[key] = self._validate_uids(value)
+            if key in id_lists:
+                out[key] = self._validate_ids(key, value)
             elif isinstance(value, (str, int, float, bool)):
                 out[key] = value
             else:
                 raise MikbillError("validation", f"{key} must be a string, number or boolean")
+        for key, options in schema.enums.items():
+            if key in out and (isinstance(out[key], bool) or out[key] not in options):
+                raise MikbillError("validation", f"{key} must be one of: {', '.join(str(o) for o in options)}")
         return out
 
-    def _validate_uids(self, value: Any) -> list[int]:
+    def _validate_ids(self, name: str, value: Any) -> list[int]:
         if not isinstance(value, list) or not value or not all(isinstance(u, int) and not isinstance(u, bool) for u in value):
-            raise MikbillError("validation", "uids must be a non-empty array of integers")
+            raise MikbillError("validation", f"{name} must be a non-empty array of integers")
         if len(set(value)) != len(value):
-            raise MikbillError("validation", "uids must not contain duplicates")
+            raise MikbillError("validation", f"{name} must not contain duplicates")
         if len(value) > self.settings.max_bulk:
-            raise MikbillError("validation", f"too many uids (limit {self.settings.max_bulk}, MB_MAX_BULK)")
+            raise MikbillError("validation", f"too many {name} (limit {self.settings.max_bulk}, MB_MAX_BULK)")
         return list(value)
 
     # ---- request building ----------------------------------------------------------------
@@ -195,22 +216,83 @@ class Runtime:
         """Form parameters sent to Mikbill: defaults, renames, fixed values, uids, string encoding."""
         merged: dict[str, Any] = {**schema.defaults, **args}
         uids = merged.pop("uids", None)
+        ticket_ids = merged.pop("ticket_ids", None)
         out: dict[str, Any] = {schema.rename.get(k, k): v for k, v in merged.items()}
         out.update(schema.fixed)
         if uids is not None:
             out["set_users_list"] = ",".join(str(u) for u in uids)
+        if ticket_ids is not None:
+            if schema.ticket_ids == "set_list":
+                out["set_list"] = ",".join(str(t) for t in ticket_ids)
+            else:  # "enumerate": the UI sends ticketid0, ticketid1, ...
+                for i, t in enumerate(ticket_ids):
+                    out[f"ticketid{i}"] = t
         return {k: _form_value(v) for k, v in out.items()}
+
+    async def _params(self, ep: Endpoint, schema: ToolSchema, args: dict[str, Any]) -> dict[str, str]:
+        if ep.tool == "mb_set_ticket_status":
+            return await self._status_params(args)
+        return self.build_params(schema, args)
+
+    async def _status_params(self, args: dict[str, Any]) -> dict[str, str]:
+        """The putticketin request the admin UI sends for each status change (verified on the demo)."""
+        status = args["status"]
+        if "rating" in args and status != "closed":
+            raise MikbillError("validation", "rating is only used with status 'closed'")
+        sid = await self._stuffid()
+        code = STATUS_CODES[status]
+        p: dict[str, Any] = {"set_list": ",".join(str(t) for t in args["ticket_ids"]), "statustypeid": code,
+                             "rating": args.get("rating", 0)}
+        if code == 1:  # open (take back)
+            p.update(closingdate=ZERO_DATE, performed_by_stuffid=sid, inworkdate=ZERO_DATE, closed_by_stuffid=0,
+                     performed_without_on_site_visit=0, inwork_by_stuffid=0, can_not_be_performed=0,
+                     performingdate=ZERO_DATE)
+        elif code == 3:  # in work
+            p.update(closingdate=ZERO_DATE, performed_by_stuffid=0, closed_by_stuffid=0,
+                     performed_without_on_site_visit=0, inwork_by_stuffid=sid, can_not_be_performed=0,
+                     performingdate=ZERO_DATE)
+        elif code == 4:  # performed
+            p.update(closingdate=ZERO_DATE, performed_by_stuffid=sid, closed_by_stuffid=0,
+                     performed_without_on_site_visit=0, inwork_by_stuffid=0, can_not_be_performed=0)
+        else:  # closed
+            p.update(closed_by_stuffid=sid)
+        return {k: _form_value(v) for k, v in p.items()}
+
+    async def _stuffid(self) -> int:
+        """The session's own staff id (data.stuff_propers.stuffid), fetched once. Status changes send it."""
+        if self._stuff_id is None:
+            env = await self.client.call(STUFF_URI)
+            data = env.get("data") if isinstance(env.get("data"), dict) else {}
+            stuff = data.get("stuff_propers") if isinstance(data.get("stuff_propers"), dict) else data
+            sid = stuff.get("stuffid") if isinstance(stuff, dict) else None
+            if sid in (None, ""):
+                raise MikbillError("upstream_error", "could not determine the acting staff id")
+            self._stuff_id = int(sid)
+        return self._stuff_id
+
+    async def _ticket_states(self, ids: list[int]) -> list[dict[str, Any]]:
+        env = await self.client.call(TICKET_LIST_URI, {}, no_success_key=True)
+        rows = {str(r.get("ticketid")): r for r in (env.get("data") or []) if isinstance(r, dict)}
+        out = []
+        for tid in ids:
+            row = rows.get(str(tid))
+            out.append({"ticketid": tid, **{k: row.get(k) for k in TICKET_STATE_KEYS}} if row
+                       else {"ticketid": tid, "listed": False})
+        return out
 
     # ---- dry run -------------------------------------------------------------------------
 
     async def _dry_run(self, ep: Endpoint, schema: ToolSchema, args: dict[str, Any]) -> dict[str, Any]:
-        params = self.build_params(schema, args)
+        params = await self._params(ep, schema, args)
         summary: dict[str, Any] = {}
         warnings: list[str] = []
         if ep.tool in WARNINGS:
             warnings.append(WARNINGS[ep.tool])
         if ep.status in ("blocked", "denied"):
             warnings.append(f"This action is '{ep.status}' on the reference installation and may return an error.")
+        if ep.tool in TICKET_TARGET_TOOLS:
+            summary["targets"] = await self._ticket_states(args["ticket_ids"])
+            summary["count"] = len(args["ticket_ids"])
         if ep.tool in USER_TARGET_TOOLS:
             uids = args["uids"] if schema.uids else [args["uid"]]
             summary["targets"] = await self._user_states(uids)
@@ -255,12 +337,20 @@ class Runtime:
     # ---- run -----------------------------------------------------------------------------
 
     async def _run(self, ep: Endpoint, schema: ToolSchema, args: dict[str, Any]) -> dict[str, Any]:
-        params = self.build_params(schema, args)
-        env = await self.client.call(ep.uri, params, allow_empty=schema.allow_empty)
+        filters = {k: args[k] for k in schema.row_filters if k in args}
+        params = await self._params(ep, schema, {k: v for k, v in args.items() if k not in filters})
+        env = await self.client.call(ep.uri, params, allow_empty=schema.allow_empty,
+                                     no_success_key=schema.no_success_key)
+        if filters:  # Mikbill ignores filter parameters for this endpoint, so filter the rows here
+            rows = [r for r in (env.get("data") or []) if isinstance(r, dict)
+                    and all(str(r.get(k)) == str(v) for k, v in filters.items())]
+            env = {**env, "data": rows}
         extra: dict[str, Any] = {}
         if ep.tool in READ_BACK_TOOLS:
             uids = args["uids"] if schema.uids else [args["uid"]]
             extra["state_after"] = await self._user_states(uids)
+        if ep.tool in TICKET_TARGET_TOOLS:
+            extra["state_after"] = await self._ticket_states(args["ticket_ids"])
         return self._shape(ep, env, extra)
 
     @staticmethod
@@ -273,6 +363,8 @@ class Runtime:
         extras = dict(extra)
         if "totalCount" in env:
             extras["totalCount"] = env["totalCount"]
+        if "counters" in env:  # ticket list: status, priority and category counters (unfiltered)
+            extras["counters"] = env["counters"]
         return _ok(redact(data), **redact(extras))
 
 

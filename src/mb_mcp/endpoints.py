@@ -7,7 +7,8 @@ form-encoded params and a JSON response with a `success` field.
 Scopes: read, write (not gated), and the gated scopes finance, account_state, admin.
 `admin` holds user groups, the address objects (settlements, neighborhoods, lanes, houses) and the
 infrastructure objects (sectors, switches, switch types, device types, IP pools, real IPs, NAS): every
-create, edit and delete, all gated. `write` is only users, user devices, sticky notes and kick.
+create, edit and delete, all gated. `write` is users, user devices, sticky notes, kick, and tickets
+(create, update, notes, status); ticket and ticket note deletes are gated in `account_state`.
 
 Status values:
   verified    executed on the demo with the request fields in fixtures/writes_verified.json
@@ -36,7 +37,7 @@ class Endpoint:
     note: str = ""
 
 
-# ---- read (19) -------------------------------------------------------------------------
+# ---- read (22) -------------------------------------------------------------------------
 
 READ: list[Endpoint] = [
     Endpoint("mb_check_session", "checkLoggedIn", "/json/users/getcountfl", "read"),
@@ -65,9 +66,14 @@ READ: list[Endpoint] = [
     Endpoint("mb_list_user_groups", "getUsersGroupsList", "/json/options/usersgroupslist", "read"),
     Endpoint("mb_get_system_options", "getSystemOptions", "/extjs/users/getsystemoptions", "read",
              note="Admin-only data (server paths and settings)."),
+    Endpoint("mb_list_tickets", None, "/extjs/ticketview/getticketslist2x", "read",
+             note="All tickets with their notes and status counters. Mikbill ignores filters, so the optional "
+                  "statustypeid, categoryid, prioritytypeid and ticketid are applied to the rows."),
+    Endpoint("mb_get_ticket_notes", None, "/json/ticketview/getnotes", "read", note="ticketid."),
+    Endpoint("mb_get_ticket_logs", None, "/json/ticketview/getlogs", "read", note="ticketid."),
 ]
 
-# ---- write (5, not gated) ----------------------------------------------------------------
+# ---- write (9, not gated) ----------------------------------------------------------------
 
 WRITE: list[Endpoint] = [
     Endpoint("mb_create_user", "createAbonent", "/extjs/users/createabonent", "write",
@@ -77,9 +83,19 @@ WRITE: list[Endpoint] = [
     Endpoint("mb_create_sticky_note", "createStickyNotesUser", "/extjs/users/createstickynotesuser", "write",
              note="Use uid (not useruid)."),
     Endpoint("mb_add_user_device", "addUserDev", "/extjs/users/adduserdev", "write"),
+    Endpoint("mb_create_ticket", None, "/extjs/ticketedit/setticket2x", "write",
+             note="categoryid and prioritytypeid required. The creator is taken from the session. Link a user with "
+                  "useruid (the address comes from the user)."),
+    Endpoint("mb_update_ticket", None, "/extjs/ticketedit/setticket2x", "write",
+             note="Same endpoint as create with ticketid; only the fields you send change."),
+    Endpoint("mb_add_ticket_note", None, "/extjs/ticketedit/addnote", "write",
+             note="ticketid, note. The author is taken from the session."),
+    Endpoint("mb_set_ticket_status", None, "/extjs/ticketedit/putticketin", "write",
+             note="status is open, in_work, performed or closed; ticket_ids lists the tickets; rating 1-5 only "
+                  "with closed. Uses the acting staff id of the session."),
 ]
 
-# ---- account_state (11, gated) -----------------------------------------------------------
+# ---- account_state (13, gated) -----------------------------------------------------------
 
 ACCOUNT_STATE: list[Endpoint] = [
     Endpoint("mb_freeze_user", "setFreezeUser", "/json/users/dofreezeuserfl", "account_state", gated=True),
@@ -103,6 +119,10 @@ ACCOUNT_STATE: list[Endpoint] = [
              status="denied", note="'Denied by settings' on the demo. Maps to denied_by_settings."),
     Endpoint("mb_delete_sticky_note", None, "/extjs/users/deletestickynotesuser", "account_state", gated=True,
              note="id."),
+    Endpoint("mb_delete_tickets", None, "/extjs/ticketedit/deletetickets", "account_state", gated=True,
+             note="ticket_ids; sent as ticketid0, ticketid1, ... The dry-run lists the tickets."),
+    Endpoint("mb_delete_ticket_note", None, "/extjs/ticketedit/deletenotes", "account_state", gated=True,
+             note="noteid."),
 ]
 
 # ---- finance (13, gated) -----------------------------------------------------------------

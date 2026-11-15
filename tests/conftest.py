@@ -23,7 +23,8 @@ class FakeClient:
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self.responses = responses or {}
 
-    async def call(self, uri: str, params: dict[str, Any] | None = None, *, allow_empty: bool = False) -> dict[str, Any]:
+    async def call(self, uri: str, params: dict[str, Any] | None = None, *, allow_empty: bool = False,
+                   no_success_key: bool = False) -> dict[str, Any]:
         self.calls.append((uri, dict(params or {})))
         resp = self.responses.get(uri, {"success": True, "data": []})
         if callable(resp):

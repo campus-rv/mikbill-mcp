@@ -13,7 +13,7 @@ OUTPUT_KEYS = frozenset({"password", "router_pass", "router_wep_pass", "pass", "
 PERSONAL_KEYS = frozenset({
     "phone", "phones", "mob_tel", "sms_tel", "callback_number", "email", "inn", "date_birth", "date_birth_do",
     "passportserie", "passportgdevidan", "passportpropiska", "passportvoenkomat", "ext_passport_date",
-    "address", "old_address", "fio",
+    "address", "old_address", "fio", "note",
 })
 
 LOG_KEYS = OUTPUT_KEYS | PERSONAL_KEYS
