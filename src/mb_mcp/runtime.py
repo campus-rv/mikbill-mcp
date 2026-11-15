@@ -12,7 +12,6 @@ from .audit import AuditLog
 from .config import Settings
 from .endpoints import ALL, Endpoint
 from .errors import MikbillError
-from .gating import ApprovalStore
 from .redaction import redact
 from .schemas import (MAX_ROWS, SCALAR_TYPES, SCHEMAS, SEARCH_INTERNET, SEARCH_MATCH, SEARCH_STATES, ToolSchema)
 
@@ -21,8 +20,6 @@ USER_STATE_KEYS = ("useruid", "user", "state", "status", "deletedtable")
 
 ENABLE_USERS_URI = "/json/users/enableusersmulti"
 VKL_URI = "/json/users/vkluserflex"
-DEVICES_URI = "/json/users/getuserdevicesbyuid"
-DEVICE_KEYS = ("devid", "devtypeid", "devtypename", "enabled", "cost", "rent", "sell_day")
 
 TICKET_LIST_URI = "/extjs/ticketview/getticketslist2x"
 STUFF_URI = "/json/index/getstuffproper"
@@ -70,7 +67,7 @@ WARNINGS: dict[str, str] = {
     "mb_delete_user_device": "Removes the device from the subscriber. Use mb_get_user_devices for the devid.",
     "mb_delete_dev_type": "Sent as delete_list: a plain id makes Mikbill answer success without deleting. A device "
                           "type that a device still uses is refused.",
-    "mb_delete_tickets": "Deletes the tickets listed in the preview. This cannot be undone.",
+    "mb_delete_tickets": "Deletes the listed tickets. This cannot be undone.",
     "mb_delete_ticket_note": "Deletes one ticket note. This cannot be undone.",
 }
 
@@ -79,6 +76,20 @@ class ClientLike(Protocol):
     async def call(self, uri: str, params: dict[str, Any] | None = None, *, allow_empty: bool = False,
                    no_success_key: bool = False) -> dict[str, Any]:
         ...
+
+
+_UNSET = object()
+
+
+def _is_bulk(schema: ToolSchema) -> bool:
+    """Bulk tools act on a list of subscribers (uids). Gated bulk tools preview by default."""
+    return schema.uids
+
+
+def _as_bool(value: Any) -> bool:
+    if not isinstance(value, bool):
+        raise MikbillError("validation", "dry_run must be true or false")
+    return value
 
 
 def _ok(data: Any, **extra: Any) -> dict[str, Any]:
@@ -90,11 +101,9 @@ def _fail(err: MikbillError) -> dict[str, Any]:
 
 
 class Runtime:
-    def __init__(self, settings: Settings, client: ClientLike, approvals: ApprovalStore | None = None,
-                 audit: AuditLog | None = None) -> None:
+    def __init__(self, settings: Settings, client: ClientLike, audit: AuditLog | None = None) -> None:
         self.settings = settings
         self.client = client
-        self.approvals = approvals or ApprovalStore()
         self.audit = audit or AuditLog(settings.audit_file)
         self._by_name = {ep.tool: ep for ep in ALL}
         self._stuff_id: int | None = None  # the session's own staff id, fetched once for ticket status changes
@@ -140,9 +149,12 @@ class Runtime:
                              "description": "Subscriber uids. Sent to Mikbill as set_users_list."}
             required.append("uids")
         if ep.gated:
-            props["dry_run"] = {"type": "boolean", "default": True,
-                                "description": "true (default) returns a preview and an approval_token; false executes."}
-            props["approval_token"] = {"type": "string", "description": "Token from the dry-run. Required when dry_run is false."}
+            bulk = _is_bulk(schema)
+            props["dry_run"] = {"type": "boolean", "default": bulk,
+                                "description": "true returns a preview (targets and their current state, the exact "
+                                               "request, warnings) and sends nothing. Default: "
+                                               + ("true for this bulk tool, so a first call previews; pass false to "
+                                                  "execute." if bulk else "false (the call executes).")}
             props["reason"] = {"type": "string", "minLength": 3, "description": "Why this action is needed. Logged."}
             required.append("reason")
         return {
@@ -156,8 +168,9 @@ class Runtime:
         if ep.tool in WARNINGS:
             parts.append(WARNINGS[ep.tool])
         if ep.gated:
-            parts.append(f"Gated ({ep.scope}): call with dry_run true, then repeat with dry_run false, the "
-                         f"approval_token and a reason.")
+            parts.append(f"Requires the {ep.scope} scope and a reason. The client should ask the user before calling.")
+            if _is_bulk(SCHEMAS[ep.tool]):
+                parts.append("Bulk tool: previews by default, pass dry_run false to execute.")
         if ep.status in ("blocked", "denied"):
             parts.append(f"Status on the reference installation: {ep.status}.")
         return " ".join(parts)
@@ -175,25 +188,22 @@ class Runtime:
             return _fail(MikbillError("scope_denied", f"scope '{ep.scope}' is not granted"))
 
         gated = ep.gated
-        dry_run = bool(arguments.pop("dry_run", True)) if gated else False
-        token = arguments.pop("approval_token", None) if gated else None
+        schema = SCHEMAS[name]
+        # Approval is the client's job (the user confirms the call in the harness). The server keeps scopes, a
+        # reason for the audit log, and a preview that is on by default only for bulk tools.
+        dry_run_arg = arguments.pop("dry_run", _UNSET) if gated else _UNSET
         reason = arguments.pop("reason", None) if gated else None
         try:
-            schema = SCHEMAS[name]
+            dry_run = _is_bulk(schema) if dry_run_arg is _UNSET else _as_bool(dry_run_arg)
             args = self._validate(schema, arguments)
             if gated and not (isinstance(reason, str) and len(reason.strip()) >= 3):
                 raise MikbillError("validation", "reason is required (at least 3 characters)")
 
             if gated and dry_run:
                 return _ok(await self._dry_run(ep, schema, args), dry_run=True)
-            if gated and not self.approvals.consume(token, name, args):
-                self.audit.record(tool=name, scope=ep.scope, principal=principal, outcome="approval_required",
-                                  params=args, reason=reason)
-                raise MikbillError("approval_required",
-                                   "a valid, unused approval_token from a dry-run of the same parameters is required")
             result = await self._run(ep, schema, args)
         except MikbillError as err:
-            if ep.scope != "read" and err.code not in ("validation", "approval_required"):
+            if ep.scope != "read" and err.code != "validation":
                 self.audit.record(tool=name, scope=ep.scope, principal=principal, outcome=err.code,
                                   params=arguments, reason=reason, detail=err.message)
             return _fail(err)
@@ -377,15 +387,10 @@ class Runtime:
             summary["count"] = 1
         else:
             params = await self._params(ep, schema, args)
-        if ep.tool == "mb_delete_user_device":
-            summary["targets"] = await self._device_targets(args["uid"], [args["devid"]])
         if ep.tool in WARNINGS:
             warnings.append(WARNINGS[ep.tool])
         if ep.status in ("blocked", "denied"):
             warnings.append(f"This action is '{ep.status}' on the reference installation and may return an error.")
-        if ep.tool in TICKET_TARGET_TOOLS:
-            summary["targets"] = await self._ticket_states(args["ticket_ids"])
-            summary["count"] = len(args["ticket_ids"])
         if ep.tool in USER_TARGET_TOOLS:
             uids = args["uids"] if schema.uids else [args["uid"]]
             summary["targets"] = await self._user_states(uids)
@@ -403,14 +408,11 @@ class Runtime:
                 summary["check"] = {"uri": uri, "ok": True}
             except MikbillError as err:
                 summary["check"] = {"uri": uri, "ok": False, "error": err.to_dict()}
-        token = self.approvals.issue(ep.tool, args)
         out: dict[str, Any] = {
             "tool": ep.tool,
             "scope": ep.scope,
             "request": {"method": "POST", "uri": uri, "params": redact(params)},
             "summary": summary,
-            "approval_token": token,
-            "expires_in_seconds": int(self.approvals.ttl),
         }
         if warnings:
             out["warnings"] = warnings
@@ -456,12 +458,6 @@ class Runtime:
             raise MikbillError("upstream_error", "Mikbill reported success but the user is still deleted")
         method = "vkluserflex" if uri == VKL_URI else "enableusersmulti"
         return _ok({"restored": True, "method": method}, state_before=[before], state_after=[after])
-
-    async def _device_targets(self, uid: int, devids: list[int]) -> list[dict[str, Any]]:
-        env = await self.client.call(DEVICES_URI, {"useruid": str(uid)}, allow_empty=True)
-        rows = {str(r.get("devid")): r for r in (env.get("data") or []) if isinstance(r, dict)}
-        return [{k: rows[str(d)].get(k) for k in DEVICE_KEYS} if str(d) in rows else {"devid": d, "listed": False}
-                for d in devids]
 
     async def _run(self, ep: Endpoint, schema: ToolSchema, args: dict[str, Any]) -> dict[str, Any]:
         if ep.tool == "mb_restore_user":

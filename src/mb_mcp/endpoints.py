@@ -4,11 +4,11 @@ Source: upstream kagatan/mb-admin-api (reference only) plus endpoints found in t
 and verified on the public demo (2026-11-15). Every upstream call is POST <uri> with
 form-encoded params and a JSON response with a `success` field.
 
-Scopes: read, write (not gated), and the gated scopes finance, account_state, admin.
+Scopes: read, write (not gated), and the gated scopes finance, account, admin.
 `admin` holds user groups, the address objects (settlements, neighborhoods, lanes, houses) and the
 infrastructure objects (sectors, switches, switch types, device types, IP pools, real IPs, NAS): every
 create, edit and delete, all gated. `write` is users, user devices, sticky notes, kick, and tickets
-(create, update, notes, status); ticket and ticket note deletes are gated in `account_state`.
+(create, update, notes, status), and the deletes of sticky notes, user devices, tickets and ticket notes.
 
 Status values:
   verified    executed on the demo with the request fields in fixtures/writes_verified.json
@@ -23,7 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-Scope = Literal["read", "write", "finance", "account_state", "admin"]
+Scope = Literal["read", "write", "finance", "account", "admin"]
 
 
 @dataclass(frozen=True)
@@ -32,7 +32,8 @@ class Endpoint:
     upstream: str | None      # upstream PHP method, or None when not wrapped upstream
     uri: str                  # upstream URI, always POST
     scope: Scope
-    gated: bool = False       # True = dry-run then approval token, requires `reason`
+    gated: bool = False       # opt-in scope: requires `reason`; bulk tools preview by default; the client
+                              # (harness) asks the user to approve the call, see tool_annotations()
     status: str = "verified"  # verified | blocked | denied | planned
     note: str = ""
 
@@ -90,7 +91,7 @@ READ: list[Endpoint] = [
              note="Staff who can be ticket performers: stuffid, login, fio."),
 ]
 
-# ---- write (9, not gated) ----------------------------------------------------------------
+# ---- write (13, not gated) ----------------------------------------------------------------
 
 WRITE: list[Endpoint] = [
     Endpoint("mb_create_user", "createAbonent", "/extjs/users/createabonent", "write",
@@ -110,42 +111,42 @@ WRITE: list[Endpoint] = [
     Endpoint("mb_set_ticket_status", None, "/extjs/ticketedit/putticketin", "write",
              note="status is open, in_work, performed or closed; ticket_ids lists the tickets; rating 1-5 only "
                   "with closed. Uses the acting staff id of the session."),
+    Endpoint("mb_delete_sticky_note", None, "/extjs/users/deletestickynotesuser", "write",
+             note="id."),
+    Endpoint("mb_delete_user_device", None, "/extjs/users/deleteuserdev", "write",
+             note="uid (sent as useruid) and devid from mb_get_user_devices."),
+    Endpoint("mb_delete_tickets", None, "/extjs/ticketedit/deletetickets", "write",
+             note="ticket_ids; sent as ticketid0, ticketid1, ... Deletes the tickets; the result shows their state afterwards."),
+    Endpoint("mb_delete_ticket_note", None, "/extjs/ticketedit/deletenotes", "write",
+             note="noteid."),
 ]
 
-# ---- account_state (13, gated) -----------------------------------------------------------
+# ---- account (11, gated) -----------------------------------------------------------
 
-ACCOUNT_STATE: list[Endpoint] = [
-    Endpoint("mb_freeze_user", "setFreezeUser", "/json/users/dofreezeuserfl", "account_state", gated=True),
-    Endpoint("mb_bulk_enable_users", None, "/json/users/enableusersmulti", "account_state", gated=True,
+ACCOUNT: list[Endpoint] = [
+    Endpoint("mb_freeze_user", "setFreezeUser", "/json/users/dofreezeuserfl", "account", gated=True),
+    Endpoint("mb_bulk_enable_users", None, "/json/users/enableusersmulti", "account", gated=True,
              note="set_users_list."),
-    Endpoint("mb_bulk_disable_users", None, "/json/users/disableusersmulti", "account_state", gated=True,
+    Endpoint("mb_bulk_disable_users", None, "/json/users/disableusersmulti", "account", gated=True,
              note="set_users_list."),
-    Endpoint("mb_bulk_unfreeze_users", None, "/json/users/unfreezeusersmulti", "account_state", gated=True,
+    Endpoint("mb_bulk_unfreeze_users", None, "/json/users/unfreezeusersmulti", "account", gated=True,
              note="set_users_list."),
-    Endpoint("mb_bulk_enable_internet", None, "/json/users/enableinternetmulti", "account_state", gated=True,
+    Endpoint("mb_bulk_enable_internet", None, "/json/users/enableinternetmulti", "account", gated=True,
              note="set_users_list."),
-    Endpoint("mb_disconnect_user", None, "/json/users/otkluserflex", "account_state", gated=True,
+    Endpoint("mb_disconnect_user", None, "/json/users/otkluserflex", "account", gated=True,
              note="Sets state 3 (disconnected). Takes uid and cena_freeze."),
-    Endpoint("mb_bulk_delete_users", None, "/json/users/deleteusersmulti", "account_state", gated=True,
+    Endpoint("mb_bulk_delete_users", None, "/json/users/deleteusersmulti", "account", gated=True,
              note="SOFT delete. set_users_list."),
-    Endpoint("mb_delete_user", None, "/json/users/deluserflex", "account_state", gated=True,
+    Endpoint("mb_delete_user", None, "/json/users/deluserflex", "account", gated=True,
              note="SOFT delete: state 4, deletedtable 1. Row remains."),
-    Endpoint("mb_delete_disconnected_user", None, "/json/users/deluserotklflex", "account_state", gated=True,
+    Endpoint("mb_delete_disconnected_user", None, "/json/users/deluserotklflex", "account", gated=True,
              note="SOFT delete of a disconnected user. uid, gid, itog_summa, type_list=2."),
-    Endpoint("mb_delete_user_full", None, "/json/users/delfulluserflex", "account_state", gated=True,
+    Endpoint("mb_delete_user_full", None, "/json/users/delfulluserflex", "account", gated=True,
              status="denied", note="'Denied by settings' on the demo. Maps to denied_by_settings."),
-    Endpoint("mb_delete_sticky_note", None, "/extjs/users/deletestickynotesuser", "account_state", gated=True,
-             note="id."),
-    Endpoint("mb_restore_user", None, "/json/users/enableusersmulti", "account_state", gated=True,
+    Endpoint("mb_restore_user", None, "/json/users/enableusersmulti", "account", gated=True,
              note="Restores a soft-deleted user (state 4). Without gid it uses enableusersmulti and the user keeps "
                   "the old tariff. With gid it uses vkluserflex and also puts the user on that tariff, which can "
                   "charge the tariff's first fee. Only for deleted users."),
-    Endpoint("mb_delete_user_device", None, "/extjs/users/deleteuserdev", "account_state", gated=True,
-             note="uid (sent as useruid) and devid from mb_get_user_devices."),
-    Endpoint("mb_delete_tickets", None, "/extjs/ticketedit/deletetickets", "account_state", gated=True,
-             note="ticket_ids; sent as ticketid0, ticketid1, ... The dry-run lists the tickets."),
-    Endpoint("mb_delete_ticket_note", None, "/extjs/ticketedit/deletenotes", "account_state", gated=True,
-             note="noteid."),
 ]
 
 # ---- finance (13, gated) -----------------------------------------------------------------
@@ -243,7 +244,7 @@ ADMIN: list[Endpoint] = [
              note="nasid."),
 ]
 
-ALL: list[Endpoint] = READ + WRITE + ACCOUNT_STATE + FINANCE + ADMIN
+ALL: list[Endpoint] = READ + WRITE + ACCOUNT + FINANCE + ADMIN
 
 # Excluded from v1 entirely (not registered in any scope):
 EXCLUDED: list[tuple[str, str]] = [
@@ -258,3 +259,29 @@ PENDING: list[tuple[str, str]] = [
     ("/json/options/delippoolsipflex", "Returned {} for a bogus poolip. Needs valid input."),
     ("/json/users/nagrasyncsubscriptions", "External Nagra integration. Not called."),
 ]
+
+
+# ---- MCP tool annotations ----------------------------------------------------------------------
+# Hints for clients (readOnlyHint, destructiveHint, idempotentHint, openWorldHint) so that a harness can decide when to
+# ask the user. They are hints, not a safety boundary: the real controls are the scopes, `reason` and the audit log.
+
+_ADDITIVE_PREFIXES = ("mb_create_", "mb_add_")
+_NOT_ADDITIVE = {"mb_create_payment"}                 # moves money, so it is treated as destructive
+_IDEMPOTENT_WORDS = {"delete", "edit", "update", "set", "unset"}
+
+
+def tool_annotations(ep: Endpoint) -> dict[str, bool]:
+    """MCP ToolAnnotations fields for a tool, in snake_case."""
+    if ep.scope == "read":
+        return {"read_only_hint": True, "open_world_hint": False}
+    additive = ep.tool.startswith(_ADDITIVE_PREFIXES) and ep.tool not in _NOT_ADDITIVE
+    return {
+        "read_only_hint": False,
+        "destructive_hint": not additive,
+        "idempotent_hint": bool(_IDEMPOTENT_WORDS & set(ep.tool.split("_"))),
+        "open_world_hint": False,
+    }
+
+
+def tool_title(ep: Endpoint) -> str:
+    return ep.tool.removeprefix("mb_").replace("_", " ").capitalize()

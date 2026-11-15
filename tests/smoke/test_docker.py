@@ -248,13 +248,22 @@ def test_http_gated_tool_is_denied_without_its_scope_and_never_reaches_the_upstr
     assert not [p for p, _ in upstream.requests if p != "/extjs/index/auth"]
 
 
-def test_http_gated_tool_with_scope_returns_a_dry_run_and_does_not_write(http_server, upstream):
+def test_http_bulk_tool_with_scope_previews_by_default_and_does_not_write(http_server, upstream):
     upstream.requests.clear()
-    args = {"uid": 1, "bughtypeid": 17, "deposit": 1, "prim2": "x", "reason": "smoke test"}
-    result = parse(rpc(http_server, TOKEN_FIN, "tools/call", {"name": "mb_create_payment", "arguments": args}))["result"]
+    args = {"uids": [1, 2], "bughtypeid": 17, "deposit": 1, "prim2": "x", "reason": "smoke test"}
+    result = parse(rpc(http_server, TOKEN_FIN, "tools/call", {"name": "mb_bulk_payment", "arguments": args}))["result"]
     body = json.loads(result["content"][0]["text"])
-    assert body["dry_run"] is True and body["data"]["approval_token"]
-    assert "/json/users/paymentdoflex" not in [p for p, _ in upstream.requests]
+    assert body["dry_run"] is True and "approval_token" not in body["data"]
+    assert body["data"]["summary"]["total_amount"] == 2.0
+    assert "/json/users/paymentdomulti" not in [p for p, _ in upstream.requests]  # the preview wrote nothing
+
+
+def test_http_tools_list_carries_annotations(http_server):
+    tools = {t["name"]: t for t in parse(rpc(http_server, TOKEN_FIN, "tools/list"))["result"]["tools"]}
+    assert tools["mb_search_users"]["annotations"]["readOnlyHint"] is True
+    pay = tools["mb_create_payment"]["annotations"]
+    assert pay["readOnlyHint"] is False and pay["destructiveHint"] is True and pay["idempotentHint"] is False
+    assert "approval_token" not in tools["mb_create_payment"]["inputSchema"]["properties"]
 
 
 def test_http_does_not_leak_the_password_into_the_logs(http_container):
@@ -287,7 +296,7 @@ def test_bearer_token_env_authenticates_with_the_server_scopes(image, upstream):
         assert rpc(url, None, "tools/list").status_code == 401
         assert rpc(url, "wrong-token-wrong-token", "tools/list").status_code == 401
         tools = parse(rpc(url, BEARER, "tools/list"))["result"]["tools"]
-        assert len(tools) == 26 + 9 + 13  # read, write and finance, as set in MB_SCOPES
+        assert len(tools) == 26 + 13 + 13  # read, write and finance, as set in MB_SCOPES
         call = parse(rpc(url, BEARER, "tools/call", {"name": "mb_list_ticket_priorities", "arguments": {}}))["result"]
         assert call["isError"] is False
         logs = docker("logs", cid, check=False)
@@ -302,7 +311,7 @@ def test_audit_log_goes_to_a_volume_under_the_compose_hardening(image, upstream)
     try:
         with running(image, upstream, docker_args=hardening, MCP_HTTP_BEARER_TOKEN=BEARER,
                      MB_AUDIT_FILE="/data/audit.jsonl") as (base, _):
-            # account_state is not in this server's scopes, so the call is denied and audited
+            # account is not in this server's scopes, so the call is denied and audited
             r = parse(rpc(base + "/mcp", BEARER, "tools/call", {"name": "mb_delete_user", "arguments": {
                 "uid": 1, "reason": "smoke test"}}))["result"]
             assert json.loads(r["content"][0]["text"])["error"]["code"] == "scope_denied"
@@ -379,7 +388,7 @@ def test_stdio_initialize_and_list_tools(image, upstream):
             proc.kill()
     assert set(replies) == {1, 2, 3}, replies
     assert replies[1]["result"]["serverInfo"]["name"]
-    assert len(replies[2]["result"]["tools"]) == 26 + 9  # default scopes: read and write
+    assert len(replies[2]["result"]["tools"]) == 26 + 13  # default scopes: read and write
     call = replies[3]["result"]
     assert call["isError"] is False and json.loads(call["content"][0]["text"])["data"] == PRIORITIES
     assert proc.returncode == 0  # closing stdin is a clean shutdown

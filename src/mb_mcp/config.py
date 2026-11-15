@@ -8,9 +8,9 @@ import os
 from dataclasses import dataclass
 from typing import Mapping
 
-ALL_SCOPES = ("read", "write", "finance", "account_state", "admin")
+ALL_SCOPES = ("read", "write", "finance", "account", "admin")
 DEFAULT_SCOPES = ("read", "write")
-GATED_SCOPES = ("finance", "account_state", "admin")
+GATED_SCOPES = ("finance", "account", "admin")
 TRANSPORTS = ("stdio", "http")
 DEFAULT_TRANSPORT = "stdio"
 DEFAULT_HTTP_HOST = "127.0.0.1"

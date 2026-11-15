@@ -13,6 +13,6 @@
     ]
   },
   "response": {"envelope": {"success": "boolean"}},
-  "scope_proposal": "account_state, gated. Recommend NOT exposing in v1: it is the most destructive variant and the difference from deluserflex is unverified.",
+  "scope_proposal": "account, gated. Recommend NOT exposing in v1: it is the most destructive variant and the difference from deluserflex is unverified.",
   "notes": ["Difference from /json/users/deluserflex is unverified. Confirm the behaviour in the UI before any decision."]
 }

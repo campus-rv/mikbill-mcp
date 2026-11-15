@@ -33,6 +33,7 @@ import pytest_asyncio
 
 from mb_mcp.client import MikbillClient
 from mb_mcp.config import ALL_SCOPES, Settings
+from mb_mcp.endpoints import ALL as ENDPOINTS
 from mb_mcp.runtime import Runtime
 
 pytestmark = [pytest.mark.contract, pytest.mark.asyncio(loop_scope="module")]
@@ -101,10 +102,11 @@ class Demo:
         return r
 
     async def gated(self, tool: str, **args: Any) -> dict[str, Any]:
-        """Dry-run, then execute with the token. Returns the executed result."""
-        dry = await self.ok(tool, reason=REASON, **args)
-        assert dry["dry_run"] is True and dry["data"]["approval_token"], f"{tool}: no dry-run preview"
-        return await self.call(tool, reason=REASON, dry_run=False, approval_token=dry["data"]["approval_token"], **args)
+        """Execute the tool. Gated tools get a reason and dry_run false (bulk tools preview by default); tools in the
+        write scope take neither. There is no approval token: the client asks the user before a call."""
+        gated = next(ep.gated for ep in ENDPOINTS if ep.tool == tool)
+        extra = {"reason": REASON, "dry_run": False} if gated else {}
+        return await self.call(tool, **extra, **args)
 
     async def gated_ok(self, tool: str, **args: Any) -> dict[str, Any]:
         r = await self.gated(tool, **args)
@@ -245,13 +247,16 @@ async def test_user_search_filters_and_online_users(demo):
     assert nobody["data"] == []
 
 
-async def test_scope_and_dry_run_guards_are_enforced_live(demo):
-    # mb_bulk_delete_users is gated (account_state). None of these calls reaches Mikbill.
+async def test_scope_reason_and_bulk_preview_guards_are_enforced_live(demo):
+    # mb_bulk_delete_users is gated (account). None of these calls changes anything on Mikbill.
     r = await demo.rt.execute("mb_bulk_delete_users", {"uids": [1], "reason": REASON}, frozenset({"read", "write"}),
                               "contract")
     assert r["error"]["code"] == "scope_denied"
     await demo.err("mb_bulk_delete_users", "validation", uids=[1])  # reason is required
-    await demo.err("mb_bulk_delete_users", "approval_required", uids=[1], reason=REASON, dry_run=False)
+    await demo.err("mb_bulk_delete_users", "validation", uids=[1], reason=REASON, approval_token="x")  # no tokens
+    preview = await demo.ok("mb_bulk_delete_users", uids=[1], reason=REASON)  # a bulk tool previews by default
+    assert preview["dry_run"] is True and "approval_token" not in preview["data"]
+    assert str((await demo.user(1))["state"]) != "4", "the preview deleted a user"
 
 
 # ---- reference data -------------------------------------------------------------------------
@@ -290,7 +295,7 @@ async def test_reference_data_crud(demo):
     await demo.gated_ok("mb_delete_house", houseid=hid); demo.done(f"house {hid}")
     await demo.gated_ok("mb_delete_lane", laneid=lid); demo.done(f"lane {lid}")
     await demo.gated_ok("mb_delete_neighborhood", neighborhoodid=nid); demo.done(f"neighborhood {nid}")
-    dry = await demo.ok("mb_delete_settlement", settlementid=sid, reason=REASON)
+    dry = await demo.ok("mb_delete_settlement", settlementid=sid, reason=REASON, dry_run=True)
     assert dry["data"]["summary"]["check"]["ok"] is True
     await demo.gated_ok("mb_delete_settlement", settlementid=sid); demo.done(f"settlement {sid}")
     await demo.gated_ok("mb_delete_sector", sectorid=secid); demo.done(f"sector {secid}")
@@ -318,7 +323,7 @@ async def test_user_lifecycle_and_finance(demo, house):
     # payment: the dry-run changes nothing, the executed call adds the amount
     before = float((await demo.user(uid))["deposit"])
     pay = dict(uid=uid, bughtypeid=17, deposit=10, prim2="MCPTEST pay")
-    dry = await demo.ok("mb_create_payment", reason=REASON, **pay)
+    dry = await demo.ok("mb_create_payment", reason=REASON, dry_run=True, **pay)
     assert dry["data"]["summary"]["total_amount"] == 10.0
     assert float((await demo.user(uid))["deposit"]) == before, "dry-run changed the balance"
     await demo.gated_ok("mb_create_payment", **pay)
@@ -401,7 +406,7 @@ async def test_packet_device_type_group_and_network_objects(demo):
     gid = next(int(p["gid"]) for p in (await demo.ok("mb_list_packets"))["data"] if p["packet"] == name)
     demo.defer(f"packet {gid}", lambda: demo.gated("mb_delete_packet", gid=gid))
     await demo.gated_ok("mb_edit_packet", gid=gid, packet=name + "b", alias="MCPTEST")
-    dry = await demo.ok("mb_delete_packet", gid=gid, reason=REASON)
+    dry = await demo.ok("mb_delete_packet", gid=gid, reason=REASON, dry_run=True)
     assert dry["data"]["summary"]["check"]["ok"] is True
     await demo.gated_ok("mb_delete_packet", gid=gid); demo.done(f"packet {gid}")
 
@@ -508,9 +513,7 @@ async def test_history_devices_and_restore(demo, house):
     r = await demo.gated("mb_delete_dev_type", devtypeid=dtid)
     assert not r["ok"], "Mikbill should refuse to delete a device type that is in use"
     assert await type_listed()
-    dry = await demo.ok("mb_delete_user_device", uid=uid, devid=devid, reason=REASON)
-    assert int(dry["data"]["summary"]["targets"][0]["devid"]) == devid
-    assert len((await demo.ok("mb_get_user_devices", uid=uid))["data"]) == 1, "dry-run removed the device"
+    assert len((await demo.ok("mb_get_user_devices", uid=uid))["data"]) == 1
     await demo.gated_ok("mb_delete_user_device", uid=uid, devid=devid); demo.done(f"device {devid}")
     assert (await demo.ok("mb_get_user_devices", uid=uid))["data"] == []
     await demo.gated_ok("mb_delete_dev_type", devtypeid=dtid); demo.done(f"devtype {dtid}")
@@ -523,7 +526,7 @@ async def test_history_devices_and_restore(demo, house):
     gid_before = str((await demo.user(uid))["gid"])
     await demo.gated_ok("mb_delete_user", uid=uid)
     assert str((await demo.user(uid))["state"]) == "4"
-    dry = await demo.ok("mb_restore_user", uid=uid, reason=REASON)
+    dry = await demo.ok("mb_restore_user", uid=uid, reason=REASON, dry_run=True)
     assert dry["data"]["request"]["uri"] == "/json/users/enableusersmulti"
     assert str((await demo.user(uid))["state"]) == "4", "dry-run restored the user"
     r = await demo.gated_ok("mb_restore_user", uid=uid)
@@ -566,7 +569,7 @@ async def test_ticket_lifecycle(demo):
     assert str(t["categoryid"]) == cat_b and str(t["prioritytypeid"]) == prio_b and str(t["emphasis"]) == "1"
     assert t["fio"] == fio
 
-    # notes: add two, read them, delete one (gated)
+    # notes: add two, read them, delete one
     await demo.ok("mb_add_ticket_note", ticketid=tid, note="MCPTEST note A")
     await demo.ok("mb_add_ticket_note", ticketid=tid, note="MCPTEST note B")
     notes = (await demo.ok("mb_get_ticket_notes", ticketid=tid))["data"]
@@ -583,11 +586,10 @@ async def test_ticket_lifecycle(demo):
         if status == "closed":
             assert str(r["state_after"][0]["rating"]) == "5"
 
-    # delete: the dry-run lists the ticket and changes nothing; the executed call removes it
-    dry = await demo.ok("mb_delete_tickets", ticket_ids=[tid], reason=REASON)
-    assert dry["data"]["summary"]["targets"][0]["ticketid"] == tid
-    assert await row() is not None, "dry-run deleted the ticket"
-    await demo.gated_ok("mb_delete_tickets", ticket_ids=[tid]); demo.done(f"ticket {tid}")
+    # delete (write scope): the result shows the ticket's state before it is gone
+    assert await row() is not None
+    r = await demo.gated_ok("mb_delete_tickets", ticket_ids=[tid]); demo.done(f"ticket {tid}")
+    assert r["state_after"][0]["ticketid"] == tid
     assert await row() is None
 
 

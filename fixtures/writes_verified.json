@@ -62,29 +62,29 @@
       "errors": ["service_portal for subscription=115 not found (error 27). No demo service has a service portal configured."]
     },
     {
-      "tool": "mb_freeze_user", "uri": "/json/users/dofreezeuserfl", "upstream": "setFreezeUser", "scope": "account_state",
+      "tool": "mb_freeze_user", "uri": "/json/users/dofreezeuserfl", "upstream": "setFreezeUser", "scope": "account",
       "request": ["uid", "do_freeze_now", "do_return_abonplata", "freeze_do_ever", "freeze_date_start", "freeze_date_stop", "cena_freeze", "cena_sutok_freeze", "count_free_freeze", "count_free_freeze_use", "cena_unfreeze"],
       "response": "{success: true, ok: 1, error: 0}"
     },
     {
-      "tool": "mb_bulk_enable_users", "uri": "/json/users/enableusersmulti", "scope": "account_state",
+      "tool": "mb_bulk_enable_users", "uri": "/json/users/enableusersmulti", "scope": "account",
       "request": ["set_users_list"], "response": "{success: true, ok: 1, error: 0}"
     },
     {
-      "tool": "mb_bulk_disable_users", "uri": "/json/users/disableusersmulti", "scope": "account_state",
+      "tool": "mb_bulk_disable_users", "uri": "/json/users/disableusersmulti", "scope": "account",
       "request": ["set_users_list"], "response": "{success: true, ok: 1, error: 0}"
     },
     {
-      "tool": "mb_bulk_delete_users", "uri": "/json/users/deleteusersmulti", "scope": "account_state",
+      "tool": "mb_bulk_delete_users", "uri": "/json/users/deleteusersmulti", "scope": "account",
       "request": ["set_users_list"], "response": "{success: true, ok: 1, error: 0}",
       "effect": "SOFT delete: the account stays in the database with state 4 and deletedtable 1 (status 'deleted'). Not verified whether it can be restored in the UI."
     },
     {
-      "tool": "mb_bulk_unfreeze_users", "uri": "/json/users/unfreezeusersmulti", "scope": "account_state",
+      "tool": "mb_bulk_unfreeze_users", "uri": "/json/users/unfreezeusersmulti", "scope": "account",
       "request": ["set_users_list"], "response": "{success: true, ok: 1, error: 0}"
     },
     {
-      "tool": "mb_bulk_enable_internet", "uri": "/json/users/enableinternetmulti", "scope": "account_state",
+      "tool": "mb_bulk_enable_internet", "uri": "/json/users/enableinternetmulti", "scope": "account",
       "request": ["set_users_list"], "response": "{success: true, ok: 1, error: 0}"
     },
     {
@@ -106,12 +106,12 @@
       "request": ["uid"], "response": "{success: true, data: [{username, ok}], error: 0}"
     },
     {
-      "tool": "mb_delete_user", "uri": "/json/users/deluserflex", "upstream": null, "scope": "account_state",
+      "tool": "mb_delete_user", "uri": "/json/users/deluserflex", "upstream": null, "scope": "account",
       "request": ["uid"], "response": "{success: true, ok: 1, error: 0}",
       "effect": "SOFT delete (same as bulk delete): state 4, deletedtable 1. The account still exists in the database."
     },
     {
-      "tool": "mb_delete_user_full", "uri": "/json/users/delfulluserflex", "upstream": null, "scope": "account_state",
+      "tool": "mb_delete_user_full", "uri": "/json/users/delfulluserflex", "upstream": null, "scope": "account",
       "request": ["uid"],
       "status": "DENIED BY SETTINGS",
       "errors": ["{success: false, error: 1, errortext: 'Denied by settings'}"],
@@ -208,7 +208,7 @@
       "response": "{success: true, ok: 1, error: 0}"
     },
     {
-      "tool": "mb_delete_house", "uri": "/json/options/delhouseflex", "upstream": "deleteHouse", "scope": "account_state",
+      "tool": "mb_delete_house", "uri": "/json/options/delhouseflex", "upstream": "deleteHouse", "scope": "account",
       "request": ["houseid"],
       "status": "BLOCKED",
       "errors": ["{success: false, error: 8}. House still has users (soft-deleted accounts count)."],
@@ -239,7 +239,7 @@
       "response": "{success: true, ok: 1, error: 0}"
     },
     {
-      "tool": "mb_delete_switch_type", "uri": "/json/options/delswitchtypeflex", "upstream": "delSwitchType", "scope": "account_state",
+      "tool": "mb_delete_switch_type", "uri": "/json/options/delswitchtypeflex", "upstream": "delSwitchType", "scope": "account",
       "request": ["swtypeid"], "response": "{success: true, ok: 1, error: 0}"
     },
     {
@@ -253,7 +253,7 @@
       "request": ["swid", "nameswitch", "swtypeid", "ip", "mac", "address"], "response": "{success: true, error: 0}"
     },
     {
-      "tool": "mb_delete_switch", "uri": "/json/options/delswitchflex", "upstream": "delSwitch", "scope": "account_state",
+      "tool": "mb_delete_switch", "uri": "/json/options/delswitchflex", "upstream": "delSwitch", "scope": "account",
       "request": ["swid"], "response": "{success: true, ok: 1, error: 0}"
     }
   ],

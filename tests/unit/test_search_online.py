@@ -2,7 +2,6 @@ import pytest
 
 from conftest import FakeClient
 from mb_mcp.endpoints import ALL
-from mb_mcp.gating import ApprovalStore
 from mb_mcp.runtime import Runtime
 
 READ = frozenset({"read"})
@@ -16,7 +15,7 @@ BASE = {"op": "1", "search_all_states": "1", "search_deleted_state": "0", "searc
 
 def make_runtime(settings, **responses):
     fake = FakeClient(responses)
-    return Runtime(settings, fake, ApprovalStore()), fake
+    return Runtime(settings, fake), fake
 
 
 def rows(n, **extra):

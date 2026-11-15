@@ -1,6 +1,6 @@
 # mb-mcp
 
-MCP server for the Mikbill admin API. 95 tools in five scopes, including tickets and user restore, with dry-run and approval for everything that changes billing, account state, privileges, or deletes data. The design is in [SPEC.md](SPEC.md); per-endpoint evidence from the public demo is in [fixtures/](fixtures/).
+MCP server for the Mikbill admin API. 95 tools in five scopes, including tickets and user restore, with opt-in scopes, a reason and an audit log for everything that changes billing, account state or privileges, and MCP tool annotations so the client asks the user before it runs them. The design is in [SPEC.md](SPEC.md); per-endpoint evidence from the public demo is in [fixtures/](fixtures/).
 
 ## Install and test
 
@@ -36,7 +36,7 @@ Environment variables only. Never commit them.
 |---|---|---|
 | `MB_BASE_URL` | Mikbill admin URL, e.g. `https://admin.example.com` | required |
 | `MB_LOGIN`, `MB_PASSWORD` | A dedicated, least-privileged Mikbill admin account | required |
-| `MB_SCOPES` | Comma list of `read,write,finance,account_state,admin` | `read,write` |
+| `MB_SCOPES` | Comma list of `read,write,finance,account,admin` | `read,write` |
 | `MB_MAX_BULK` | Maximum uids per bulk call | `50` |
 | `MB_CA_BUNDLE` | CA bundle for private certificates | system store |
 | `MB_INSECURE_TLS` | `1` disables TLS verification (logged as a warning) | off |
@@ -51,16 +51,33 @@ Environment variables only. Never commit them.
 
 The variables marked "HTTP only" are read only when the transport is `http`. In stdio mode they are ignored and not validated, so one env file can serve both modes.
 
-The default scopes expose only read tools and the non-gated writes. The `finance`, `account_state`, and `admin` scopes are opt-in.
+The default scopes (`read`, `write`) expose the read tools and the non-gated writes. The `finance`, `account` and `admin` scopes are opt-in. (`account` was named `account_state` in 0.0.1; the old name is no longer accepted.)
 
 ## Gated tools
 
-Tools in `finance`, `account_state`, and `admin` take three extra arguments:
+Tools in `finance`, `account` and `admin` are off by default and take two extra arguments:
 
-1. Call with `reason` (and no `dry_run`): the server returns a preview and a one-time `approval_token`. Nothing changes.
-2. Repeat the call with `dry_run: false`, the `approval_token`, and the same parameters. The token is single use, expires after 5 minutes, and is bound to the exact parameters.
+- `reason` (required, at least 3 characters): why the action is needed. It goes to the audit log.
+- `dry_run` (optional): `true` returns a preview (the exact request, the targets with their current state, totals, warnings) and sends nothing. It defaults to `true` for bulk tools (`mb_bulk_*`, which take `uids`), so a first call previews and `dry_run: false` executes. Single-target tools execute on the first call.
 
-Soft deletes (`mb_delete_user`, `mb_bulk_delete_users`, `mb_delete_disconnected_user`) leave the account in the database with state 4. All three are gated. Passwords in Mikbill responses are masked in tool output.
+There is no approval token. The user's approval of a call is the client's job, and every tool carries MCP annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`) so the client can decide when to ask. Annotations are hints, not a safety boundary: the scopes, `reason`, the audit log and `MB_MAX_BULK` are the server's controls. A token or env with a gated scope can run those tools without a human, so grant them only to clients that ask the user.
+
+Claude Code: gated tools prompt by default, and you can make that explicit with `permissions.ask` rules in `.claude/settings.json` (the tool name is `mcp__<server name>__<tool>`; `mikbill` below is the name from `claude mcp add mikbill ...`). Generate the list from the endpoint table:
+
+```bash
+python -m mb_mcp --list-endpoints | awk '$1=="finance"||$1=="account"||$1=="admin" {printf "      \"mcp__mikbill__%s\",
+", $2}'
+```
+
+```json
+{
+  "permissions": {
+    "ask": ["mcp__mikbill__mb_create_payment", "mcp__mikbill__mb_bulk_payment", "mcp__mikbill__mb_delete_user"]
+  }
+}
+```
+
+Soft deletes (`mb_delete_user`, `mb_bulk_delete_users`, `mb_delete_disconnected_user`) leave the account in the database with state 4; `mb_restore_user` brings it back. Deletes of sticky notes, user devices, tickets and ticket notes are in the `write` scope and run without `reason` or preview. Passwords in Mikbill responses are masked in tool output.
 
 ## Run over stdio (Claude Code / Claude Desktop)
 
@@ -137,7 +154,7 @@ claude mcp add --transport http mikbill http://127.0.0.1:8000/mcp \
 Other examples:
 
 ```bash
-# More scopes for the one bearer token (gated scopes still need a dry run and an approval token per call)
+# More scopes for the one bearer token (gated scopes need a reason on every call; the client asks the user to approve)
 docker run --rm -p 127.0.0.1:8000:8000 --env-file .env -e MB_SCOPES=read,write,finance ghcr.io/campus-rv/mikbill-mcp:latest
 
 # Different tokens with different scopes: MB_HTTP_TOKENS holds the SHA-256 of each token, not the token
@@ -240,6 +257,6 @@ Set `MB_SMOKE_IMAGE=<name>` to test an image you already built. CI runs the unit
 
 ## Status
 
-- Implemented: client, error mapping, gating, redaction, audit, runtime, stdio and HTTP servers, Docker image. 230 unit tests pass, including an in-memory MCP session and a real HTTP round trip. 21 Docker smoke tests pass.
+- Implemented: client, error mapping, gating, redaction, audit, runtime, stdio and HTTP servers, Docker image. 289 unit tests pass, including an in-memory MCP session and a real HTTP round trip. 22 Docker smoke tests pass.
 - The live contract suite (`tests/contract`) passes against the public Mikbill demo. All 10 tests passed on the last run, including the tests for ticket lookups, user history, devices and restore. Some paths are only partly covered: `mb_use_voucher` is tested with a wrong code only, and `mb_set_personal_service` only on a service without a portal.
 - Open items are listed in SPEC.md ("Blocked and denied", "Discovered endpoints").

@@ -6,7 +6,6 @@ import pytest
 
 from mb_mcp.config import ALL_SCOPES, Settings
 from mb_mcp.errors import MikbillError
-from mb_mcp.gating import ApprovalStore
 from mb_mcp.runtime import Runtime
 
 
@@ -44,7 +43,7 @@ def fake() -> FakeClient:
 
 @pytest.fixture
 def runtime(settings: Settings, fake: FakeClient) -> Runtime:
-    return Runtime(settings, fake, ApprovalStore())
+    return Runtime(settings, fake)
 
 
 ALL_SCOPE_SET = frozenset(ALL_SCOPES)

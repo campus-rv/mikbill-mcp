@@ -11,13 +11,13 @@
       "uri": "/json/users/otkluserflex", "tool": "mb_disconnect_user", "status": "verified",
       "request": ["uid", "cena_freeze"],
       "effect": "Sets state 3, status 'otkluchen' (disconnected). otkluchentable 1.",
-      "scope": "account_state", "gated": true
+      "scope": "account", "gated": true
     },
     {
       "uri": "/json/users/deluserotklflex", "tool": "mb_delete_disconnected_user", "status": "verified",
       "request": ["uid", "gid", "itog_summa", "type_list"],
       "effect": "Soft delete: state 4, deletedtable 1. Applies to a disconnected user.",
-      "scope": "account_state", "gated": true
+      "scope": "account", "gated": true
     },
     {
       "uri": "/json/users/vkluserflex", "tool": "mb_enable_flex_tariff", "status": "verified (previously blocked)",
@@ -44,13 +44,13 @@
       "uri": "/json/options/delippoolsflex", "tool": "mb_delete_ip_pool", "status": "verified",
       "request": ["poolname"],
       "effect": "Deleted MCPTEST_POOL (created with addippoolsflex {poolname}).",
-      "scope": "account_state", "gated": true
+      "scope": "account", "gated": true
     },
     {
       "uri": "/json/options/delrealipflex", "tool": "mb_delete_real_ip", "status": "verified",
       "request": ["real"],
       "effect": "Deleted one real IP per call. Real IPs are identified by the address string.",
-      "scope": "account_state", "gated": true,
+      "scope": "account", "gated": true,
       "notes": "Created with addrealipflex {localip, netmask, cidrmask, hostmin, hostmax, hosts}. 254 addresses were created and deleted one by one. Each delete is a separate call."
     },
     {
@@ -58,13 +58,13 @@
       "request": ["nasid"],
       "errors": ["Missing 'nasid' with the field name nasname (error 1)"],
       "effect": "Deleted MCPTEST_NAS (id 16, created with nasaddflex {nasname, nasip, secret, shortname}).",
-      "scope": "account_state", "gated": true
+      "scope": "account", "gated": true
     },
     {
       "uri": "/json/options/delippoolsipflex", "tool": "mb_remove_ip_from_pool", "status": "not verified",
       "request": ["poolip"],
       "effect": "A bogus poolip returned an empty object {} (not a JSON envelope). Valid input not found.",
-      "scope": "account_state", "gated": true
+      "scope": "account", "gated": true
     },
     {
       "uri": "/json/users/nagrasyncsubscriptions", "tool": "mb_nagra_sync", "status": "not exercised",

@@ -10,25 +10,25 @@ Decisions:
 - Language: Python, official `mcp` SDK, `httpx`.
 - Transport: stdio and Streamable HTTP.
 - Parameter schemas: from the live admin UI (request field names, verified responses on the demo).
-- Every change to billing, account state, privileges, or any delete is gated: opt-in scope, dry-run, approval token, reason.
+- Changes to billing, account state, privileges and the admin objects are gated: opt-in scope, `reason`, audit log, MCP tool annotations. The user's approval of each call is the client's job (the harness prompts); the server has no approval token. Bulk tools preview by default. See "Gated-tool mechanics".
 
 ## Scopes
 
-A tool is registered only when its scope is granted. Gated tools always go through dry-run and approval.
+A tool is registered only when its scope is granted. Gated tools need a `reason`; the client is expected to ask the user before each call (see Approval model).
 
 | Scope | Default | Gated | Tools | Contents |
 |---|---|---|---|---|
 | `read` | on | no | 26 | User search with the admin UI's filters; online users; lookups, histories, dictionaries, system options; tickets, ticket notes and logs; ticket category, priority and performer lookups |
-| `write` | on | no | 9 | Create and edit users; add user devices; sticky notes; kick user; create and update tickets, ticket notes, ticket status |
-| `account_state` | off | yes | 15 | Freeze; bulk enable, disable, unfreeze, enable internet; disconnect; soft deletes (single, bulk, disconnected); restore a deleted user; full delete; sticky note, ticket, ticket note and user device deletes |
+| `write` | on | no | 13 | Create and edit users; add and delete user devices; sticky notes (create, delete); kick user; tickets (create, update, notes, status, delete tickets and notes) |
+| `account` | off | yes | 11 | Freeze; bulk enable, disable, unfreeze, enable internet; disconnect; soft deletes (single, bulk, disconnected); restore a deleted user; full delete |
 | `finance` | off | yes | 13 | Payments (single, bulk); tariff change; flex tariff (reactivate); packet add, edit, delete; personal service set and unset; credit remove (single, bulk); credit issue (bulk); voucher use |
 | `admin` | off | yes | 32 | User groups; address objects (settlements, neighborhoods, lanes, houses); infrastructure objects (sectors, switch types, switches, device types, IP pools, real IPs, NAS). Every create, edit and delete |
 
 Total: 95 tools. Blocked and denied tools are registered (see Blocked and denied).
 
-**Delete rule:** every delete is gated, regardless of entity type. That includes the single-user soft delete `mb_delete_user`, which was briefly a plain `write` tool and was moved back to `account_state`.
+**Delete rule:** deletes of users (soft and full), packets, user groups and every admin object are gated. Deletes of sticky notes, user devices, tickets and ticket notes are plain `write` tools (no reason, no preview; the result of `mb_delete_tickets` still shows the tickets' state afterwards). The scope `account` was called `account_state` until 0.0.1.
 
-**Admin rule:** all changes to address objects (settlements, neighborhoods, lanes, houses) and infrastructure objects (sectors, switch types, switches, device types, IP pools, real IPs, NAS) need the `admin` scope and go through dry-run and approval: every create, edit and delete. The `write` scope is only users, user devices, sticky notes and kick.
+**Admin rule:** all changes to address objects (settlements, neighborhoods, lanes, houses) and infrastructure objects (sectors, switch types, switches, device types, IP pools, real IPs, NAS) need the `admin` scope and are gated: every create, edit and delete. The `write` scope is users, user devices, sticky notes, kick and tickets, with the deletes of the last three.
 
 **Not in v1:**
 - `consoleMe` and `/extjs/options/consolecommands` (console execution)
@@ -68,7 +68,7 @@ Total: 95 tools. Blocked and denied tools are registered (see Blocked and denied
 | `mb_list_ticket_priorities` | none | `/json/ticketview/getprioritiestypeslist` | 1 high, 2 normal, 3 low |
 | `mb_list_ticket_performers` | none | `/extjs/ticketview/getPerformerList` | stuffid, login, fio |
 
-### write (9, not gated)
+### write (13, not gated)
 
 | Tool | Upstream | URI |
 |---|---|---|
@@ -81,8 +81,12 @@ Total: 95 tools. Blocked and denied tools are registered (see Blocked and denied
 | `mb_update_ticket` | none | `/extjs/ticketedit/setticket2x` | With ticketid; only the fields sent change |
 | `mb_add_ticket_note` | none | `/extjs/ticketedit/addnote` | ticketid, note |
 | `mb_set_ticket_status` | none | `/extjs/ticketedit/putticketin` | status open, in_work, performed, closed; ticket_ids; rating with closed |
+| `mb_delete_sticky_note` | none | `/extjs/users/deletestickynotesuser` | id |
+| `mb_delete_user_device` | none | `/extjs/users/deleteuserdev` | uid (sent as useruid), devid from `mb_get_user_devices` |
+| `mb_delete_tickets` | none | `/extjs/ticketedit/deletetickets` | ticket_ids, sent as ticketid0, ticketid1, ... The result shows the tickets' state |
+| `mb_delete_ticket_note` | none | `/extjs/ticketedit/deletenotes` | noteid |
 
-### account_state (15, gated)
+### account (11, gated)
 
 | Tool | Upstream | URI | Param / note |
 |---|---|---|---|
@@ -96,11 +100,7 @@ Total: 95 tools. Blocked and denied tools are registered (see Blocked and denied
 | `mb_bulk_delete_users` | none | `/json/users/deleteusersmulti` | `set_users_list`. **Soft delete** |
 | `mb_delete_disconnected_user` | none | `/json/users/deluserotklflex` | uid, gid, itog_summa, type_list=2. **Soft delete** |
 | `mb_delete_user_full` | none | `/json/users/delfulluserflex` | Denied on the demo |
-| `mb_delete_sticky_note` | none | `/extjs/users/deletestickynotesuser` | id |
 | `mb_restore_user` | none | `/json/users/enableusersmulti` or `/json/users/vkluserflex` | uid; with gid it assigns that tariff (see Restoring a deleted user) |
-| `mb_delete_user_device` | none | `/extjs/users/deleteuserdev` | uid (sent as useruid), devid from `mb_get_user_devices` |
-| `mb_delete_tickets` | none | `/extjs/ticketedit/deletetickets` | ticket_ids, sent as ticketid0, ticketid1, ... Dry-run lists the tickets |
-| `mb_delete_ticket_note` | none | `/extjs/ticketedit/deletenotes` | noteid |
 
 ### finance (13, gated)
 
@@ -122,7 +122,7 @@ Total: 95 tools. Blocked and denied tools are registered (see Blocked and denied
 
 ### admin (32, gated)
 
-User groups, address objects (settlements, neighborhoods, lanes, houses) and infrastructure objects (sectors, switch types, switches, device types, IP pools, real IPs, NAS): create, edit and delete all need the `admin` scope, dry-run and approval.
+User groups, address objects (settlements, neighborhoods, lanes, houses) and infrastructure objects (sectors, switch types, switches, device types, IP pools, real IPs, NAS): create, edit and delete all need the `admin` scope and a reason.
 
 | Tool | Upstream | URI | Note |
 |---|---|---|---|
@@ -185,7 +185,7 @@ Mikbill does not page the result and returns every subscriber for an empty searc
 
 ## Tickets
 
-Nine tools cover the ticket endpoints: reads in `read`, create, update, notes and status in `write`, deletes gated in `account_state` (the same place as the sticky note delete). Evidence is in `fixtures/tickets_verified.json`, captured on the demo with MCPTEST tickets that were deleted afterwards.
+Nine tools cover the ticket endpoints: reads in `read`, create, update, notes and status in `write`, deletes also in `write` (with the sticky note and user device deletes). Evidence is in `fixtures/tickets_verified.json`, captured on the demo with MCPTEST tickets that were deleted afterwards.
 
 What the endpoints do, and what the MCP does about it:
 
@@ -193,18 +193,18 @@ What the endpoints do, and what the MCP does about it:
 - **It ignores filter parameters** (status, category, priority, ticketid, paging all returned every ticket). `mb_list_tickets` takes optional `statustypeid`, `categoryid`, `prioritytypeid` and `ticketid`, applies them to the returned rows, and never sends them. `counters` in the result are unfiltered. Each row already embeds its notes.
 - **Create and update share `setticket2x`.** The creator and note authors come from the session, so the UI's `employed_by_stuffid` and `note_author` are not sent. `useruid` links a subscriber, and the ticket's address then comes from the user's house.
 - **Status changes (`putticketin`) need the acting staff id.** A request with only `set_list` and `statustypeid` works for "open" and fails with error 1202 for the other statuses. The tool builds the full request the admin UI sends, using the session's own staff id (`data.stuff_propers.stuffid` from `/json/index/getstuffproper`, fetched once and cached). `status` is `open` (1), `closed` (2), `in_work` (3) or `performed` (4); `rating` (1 to 5) is only valid with `closed`. One call can change several tickets (`ticket_ids`, at most `MB_MAX_BULK`). The result reads the tickets back (`state_after`).
-- **Deletes** send `ticketid0`, `ticketid1`, ... The dry-run lists each ticket with its status, category, priority, rating and creation date (no names or phone numbers), and the result shows `listed: false` for tickets that are gone. A deleted ticket cannot be restored through any endpoint found.
+- **Deletes** send `ticketid0`, `ticketid1`, ... `mb_delete_tickets` is a `write` tool: it runs when called, and the result shows each ticket's status, category, priority, rating and creation date (no names or phone numbers) read back afterwards, with `listed: false` for tickets that are gone. A deleted ticket cannot be restored through any endpoint found.
 - **Ticket notes** are treated as personal data: they are masked in the audit log.
 
 Lookups: `mb_list_ticket_categories`, `mb_list_ticket_priorities` and `mb_list_ticket_performers` give the category, priority and performer ids that `mb_create_ticket` and `mb_update_ticket` take (`set_list` is a comma list of performer staff ids).
 
 ## Restoring a deleted user
 
-`mb_restore_user` (gated, `account_state`) brings a soft-deleted user (state 4, `deletedtable` 1) back. Two verified paths, chosen by whether a tariff is given (evidence in `fixtures/restore_devices_lookups_verified.json`):
+`mb_restore_user` (gated, `account`) brings a soft-deleted user (state 4, `deletedtable` 1) back. Two verified paths, chosen by whether a tariff is given (evidence in `fixtures/restore_devices_lookups_verified.json`):
 
 - **No `gid`: `enableusersmulti`** (`set_users_list`). The user returns to state 1 on the same tariff. It worked for users deleted by `deluserflex` and for users that were disconnected and then deleted by `deluserotklflex` (they come back to state 1, not 3).
 - **With `gid`: `vkluserflex`** (`uid`, `gid`, `itog_summa`, `type_list` 2). It works directly from the deleted state: no separate enable step. The user returns to state 1 on the given tariff. This is the way to restore a user whose tariff is gone (gid 0, tariff "Error", which is what a scheduled tariff change leaves). It can charge: the demo deposit dropped by the tariff's first daily fee.
-- **Preconditions and checks:** the user must be deleted, otherwise `precondition_failed` (`vkluserflex` on an active user fails with `DUPLICATE_LOGIN`). The dry-run shows the user's current state and which request will be sent. After the call the state is read back, and the tool fails if the user is still deleted.
+- **Preconditions and checks:** the user must be deleted, otherwise `precondition_failed` (`vkluserflex` on an active user fails with `DUPLICATE_LOGIN`). A preview (`dry_run: true`) shows the user's current state and which request will be sent. After the call the state is read back, and the tool fails if the user is still deleted.
 
 
 The upstream UI uses two different parameter styles for deletes. They do not behave the same:
@@ -216,15 +216,15 @@ Rules for the MCP:
 - `mb_delete_house` sends `houseid` only. Never `delete_list`.
 - `mb_delete_dev_type` is the reverse of houses: a plain `devtypeid` is the silent no-op (success, nothing deleted) and `delete_list` really deletes, refusing a type that a device still uses. Found by the contract run leaking a device type each time; the tool now sends `delete_list`.
 - `mb_delete_user_group` sends `delete_list`. Dry-run must count users with that `usersgroupid` first, because the in-use check was not reproduced with `delete_list`.
-- Every delete dry-run runs the check endpoint where one exists and lists what would be affected.
-- **Mikbill does not enforce its own dependency checks for settlements, neighborhoods and lanes.** On the demo, the check endpoints report dependents ("can't delete lane with houses"; `checkdeletesettlement` returns error 2), but `dellaneflex`, `deleteneighborhood` and `deletesettlement` delete anyway and leave the houses pointing at nothing (lane name empty, neighborhood 0, settlement empty). So these three deletes stay gated in `admin`, and their dry-runs run `checkdellane`, `checkdeleteneighborhood` and `checkdeletesettlement` so the dependents are visible before approval. Moving them to `write` was considered and rejected for this reason.
+- A preview (`dry_run: true`) of a delete runs the check endpoint where one exists and lists what would be affected. Single-target tools do not preview unless asked; the harness prompt is the approval.
+- **Mikbill does not enforce its own dependency checks for settlements, neighborhoods and lanes.** On the demo, the check endpoints report dependents ("can't delete lane with houses"; `checkdeletesettlement` returns error 2), but `dellaneflex`, `deleteneighborhood` and `deletesettlement` delete anyway and leave the houses pointing at nothing (lane name empty, neighborhood 0, settlement empty). So these three deletes stay gated in `admin`, and their previews (`dry_run: true`) run `checkdellane`, `checkdeleteneighborhood` and `checkdeletesettlement` so the dependents are visible before approval. Moving them to `write` was considered and rejected for this reason.
 
 ## Soft delete
 
 - `deluserflex`, `deleteusersmulti`, and `deluserotklflex` mark the account as deleted: state `4`, `deletedtable` `1`. The row stays in the database.
 - Tool descriptions say "soft delete" and name the effect. The output includes the state read back after the call.
-- All three soft-delete tools (`mb_delete_user`, `mb_bulk_delete_users`, `mb_delete_disconnected_user`) are gated in `account_state`: dry-run, approval token and reason. Bulk dry-runs list every uid.
-- Dry-run shows the target uid(s), current state, and count. Bulk dry-run lists every uid.
+- All three soft-delete tools (`mb_delete_user`, `mb_bulk_delete_users`, `mb_delete_disconnected_user`) are gated in `account`: scope and reason. `mb_bulk_delete_users` previews by default and lists every uid.
+- A preview shows the target uid(s), current state, and count.
 - Restoration: see Restoring a deleted user (`mb_restore_user`).
 
 ## Blocked and denied
@@ -255,10 +255,19 @@ Previously blocked, now resolved:
 
 ## Gated-tool mechanics
 
-- Dry-run is the default. It returns the exact request, a target summary (uids, count, total amount for payments, check results for deletes), and a one-time `approval_token` valid 5 minutes, bound to a hash of the params.
-- A second call with `dry_run: false` and the token executes the request. The token is single use.
-- `reason` is required on every gated call and written to the audit log.
-- Bulk tools: dry-run lists every uid. Payment tools: dry-run shows the total amount.
+Gated tools are the ones in the `account`, `finance` and `admin` scopes.
+
+- **Scope:** registered only when the scope is in `MB_SCOPES` and, over HTTP, in the calling token's scopes.
+- **`reason`:** required (at least 3 characters) and written to the audit log with the tool, scope, principal and redacted parameters.
+- **No approval token.** The user's approval of a call is the client's job: MCP says a human SHOULD be able to deny tool invocations and clients SHOULD show inputs and confirm sensitive operations. A server-issued token that the same model requests and spends is not human approval, and it made harnesses prompt twice for one action (once for the preview, once for the call).
+- **Annotations:** every tool is listed with MCP tool annotations and a title: `readOnlyHint` for the read scope; for the rest `destructiveHint` (false only for additive creates such as `mb_create_*` and `mb_add_*`, true for updates, deletes, state changes and all money movement), `idempotentHint` (true for deletes, edits, updates and setters), and `openWorldHint` false. Annotations are hints from the server; clients treat them as untrusted, so they shape the prompt but are not a safety boundary.
+- **`dry_run`:** an optional boolean on gated tools. `true` returns the exact request, a target summary (uids and their current state, count, total amount for payments, dependency check results for deletes) and warnings, and sends nothing. The default is `true` for bulk tools (those taking `uids`: the `mb_bulk_*` tools) so a first call previews, and `false` for single-target tools, which execute on the first call. Pass `dry_run: false` to execute a bulk tool. Previews are not audited.
+- **Limits:** `MB_MAX_BULK` caps the uids per bulk call.
+- **Results:** executed calls report state before and after where it is read back (soft deletes, restore, ticket deletes).
+
+### Approval model
+
+The harness decides who may call what: it should ask the user before each gated call (for example, Claude Code `permissions.ask` rules for the gated tool names, `allow` for read tools; the README has an example). Over HTTP, a token granted the `finance`, `account` or `admin` scope is itself the authorization for those calls: an unattended agent with such a token can execute them without further confirmation. Issue those tokens only to clients with a human in the loop, or accept that risk. Elicitation (the spec's way for a server to ask the user) is not used: it needs client support and is not available on stateless HTTP with the 2025 protocol versions.
 
 ## Authentication and session
 
@@ -286,7 +295,7 @@ Previously blocked, now resolved:
 - Output envelope:
   ```json
   {"ok": true, "status": 200, "data": {...}}
-  {"ok": false, "error": {"code": "upstream_error|auth_failed|timeout|validation|scope_denied|approval_required|conflict|precondition_failed|denied_by_settings", "message": "..."}}
+  {"ok": false, "error": {"code": "upstream_error|auth_failed|timeout|validation|scope_denied|conflict|precondition_failed|denied_by_settings", "message": "..."}}
   ```
 - `mb_get_user_payment_history` requires at least one filter (`uid`, or `from_date`/`to_date`). `mb_search_users` requires at least one search filter (see User search).
 - Tools that return many rows take `limit` (`mb_search_users` default 100, `mb_list_online_users` default 200, maximum 1000). The result has `totalCount` (rows that matched, before the limit) and `truncated`.
@@ -305,8 +314,8 @@ Found in the admin UI and verified on MCPTEST records (details in `fixtures/disc
 
 | Endpoint | Tool | Result | Scope |
 |---|---|---|---|
-| `otkluserflex` | `mb_disconnect_user` | Verified | account_state |
-| `deluserotklflex` | `mb_delete_disconnected_user` | Verified (soft delete) | account_state |
+| `otkluserflex` | `mb_disconnect_user` | Verified | account |
+| `deluserotklflex` | `mb_delete_disconnected_user` | Verified (soft delete) | account |
 | `vkluserflex` | `mb_enable_flex_tariff` | Verified (was blocked) | finance |
 | `unsetpersonalserviceuser` | `mb_unset_personal_service` | Verified | finance |
 | `usevaucherfl` | `mb_use_voucher` | Wrong-code path verified. Valid-code path not run | finance |
@@ -361,7 +370,6 @@ mikbill-mcp/
     config.py            # env parsing, scopes, token hashes (planned)
     client.py            # httpx session, login, re-login, normalize (planned)
     server.py            # FastMCP app, registers tools by scope (planned)
-    gating.py            # dry-run and approval tokens (planned)
     audit.py             # audit log, redaction (planned)
     http_auth.py         # bearer and Origin checks (planned)
   tests/
@@ -371,7 +379,7 @@ mikbill-mcp/
 
 ## Verification
 
-1. **Unit tests** (`pytest`, `respx`): login and MD5 hashing; one re-login on failure; `success: false` mapping; each error code in the mapping table, using recorded responses from the fixtures; scope registration (counts per scope: 26, 9, 15, 13, 32); dry-run makes no upstream POST; approval token single use and bound to params; bulk dry-run lists every uid; missing `reason` rejected; delete tools use the parameter listed in this spec; `mb_delete_house` never sends `delete_list`; bearer and Origin checks; redaction.
+1. **Unit tests** (`pytest`, `respx`): login and MD5 hashing; one re-login on failure; `success: false` mapping; each error code in the mapping table, using recorded responses from the fixtures; scope registration (counts per scope: 26, 13, 11, 13, 32); a preview makes no upstream POST; bulk tools preview by default and single tools execute; there is no approval token; annotations on every tool; missing `reason` rejected; delete tools use the parameter listed in this spec; `mb_delete_house` never sends `delete_list`; bearer and Origin checks; redaction.
 2. **Contract tests** (opt-in; demo or own test instance only, MCPTEST records only): the verified sequence through the MCP. Soft delete leaves state 4. Blocked tools return their mapped codes.
 3. **MCP inspector:** `npx @modelcontextprotocol/inspector python -m mb_mcp` lists tools per scope.
 4. **Client config check:** add to Claude Code or Claude Desktop with env vars; search a test user by `uid`.
@@ -380,7 +388,7 @@ mikbill-mcp/
 
 ## Assumptions
 
-1. Every delete is gated, including reference data and the single-user soft delete. Confirmed by the user.
+1. Deletes of users, packets, user groups and admin objects are gated; deletes of sticky notes, user devices, tickets and ticket notes are `write` tools. Confirmed by the user.
 2. `mb_delete_user_full` stays registered and returns `denied_by_settings` where denied. Confirmed by the user.
 3. Discovered endpoints are included after verification. Confirmed by the user. Pending ones are listed above.
 4. Packet catalog edits, personal service, voucher use, and user-group create/update are gated because they change billing or privileges.

@@ -64,13 +64,13 @@
       ]
     },
     {
-      "tool": "mb_delete_tickets", "uri": "/extjs/ticketedit/deletetickets", "scope": "account_state (gated)",
+      "tool": "mb_delete_tickets", "uri": "/extjs/ticketedit/deletetickets", "scope": "account (gated)",
       "request": ["ticketid0", "ticketid1", "..."],
       "response": "{success: true, data: [], error: 0}",
       "notes": ["The UI sends ticketid0, ticketid1, ... (one numbered parameter per ticket). Two tickets were deleted in one call and then no longer listed.", "Deleted tickets cannot be restored through any endpoint found."]
     },
     {
-      "tool": "mb_delete_ticket_note", "uri": "/extjs/ticketedit/deletenotes", "scope": "account_state (gated)",
+      "tool": "mb_delete_ticket_note", "uri": "/extjs/ticketedit/deletenotes", "scope": "account (gated)",
       "request": ["noteid"],
       "response": "{success: true, error: 0}",
       "notes": ["Verified: the note was gone from getnotes afterwards."]

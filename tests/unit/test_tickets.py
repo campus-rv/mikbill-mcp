@@ -34,9 +34,8 @@ def tfake():
 
 @pytest.fixture
 def trt(settings, tfake):
-    from mb_mcp.gating import ApprovalStore
     from mb_mcp.runtime import Runtime
-    return Runtime(settings, tfake, ApprovalStore())
+    return Runtime(settings, tfake)
 
 
 def gated(args, **extra):
@@ -49,10 +48,9 @@ def test_ticket_tools_scopes():
     by_name = {ep.tool: ep for ep in ALL}
     for name in ("mb_list_tickets", "mb_get_ticket_notes", "mb_get_ticket_logs"):
         assert by_name[name].scope == "read" and not by_name[name].gated
-    for name in ("mb_create_ticket", "mb_update_ticket", "mb_add_ticket_note", "mb_set_ticket_status"):
+    for name in ("mb_create_ticket", "mb_update_ticket", "mb_add_ticket_note", "mb_set_ticket_status",
+                 "mb_delete_tickets", "mb_delete_ticket_note"):
         assert by_name[name].scope == "write" and not by_name[name].gated
-    for name in ("mb_delete_tickets", "mb_delete_ticket_note"):
-        assert by_name[name].scope == "account_state" and by_name[name].gated
 
 
 def test_status_tool_schema_has_enums(trt):
@@ -202,52 +200,41 @@ async def test_status_validation(trt, tfake, args):
     assert tfake.posted(PUTIN) == []
 
 
-# ---- deletes (gated) ------------------------------------------------------------------------------
+# ---- deletes (write scope: the client asks the user, the server does not preview) ------------------------------
 
-async def test_delete_tickets_dry_run_lists_tickets_and_changes_nothing(trt, tfake):
-    r = await trt.execute("mb_delete_tickets", gated({"ticket_ids": [59, 999]}), ALL_SCOPE_SET)
-    assert r["ok"] and r["dry_run"] is True
-    targets = {t["ticketid"]: t for t in r["data"]["summary"]["targets"]}
-    assert targets[59]["statustypeid"] == "1" and targets[999] == {"ticketid": 999, "listed": False}
-    assert r["data"]["summary"]["count"] == 2
-    assert r["data"]["request"]["params"] == {"ticketid0": "59", "ticketid1": "999"}
-    assert "fio" not in json.dumps(r) and "Real Name" not in json.dumps(r)  # no personal data in the preview
-    assert tfake.posted("/extjs/ticketedit/deletetickets") == []
-    assert any("cannot be undone" in w for w in r["data"]["warnings"])
-
-
-async def test_delete_tickets_sends_enumerated_ids_after_approval(trt, tfake):
-    args = {"ticket_ids": [59, 60]}
-    token = (await trt.execute("mb_delete_tickets", gated(args), ALL_SCOPE_SET))["data"]["approval_token"]
-    r = await trt.execute("mb_delete_tickets", gated(args, dry_run=False, approval_token=token), ALL_SCOPE_SET)
-    assert r["ok"]
+async def test_delete_tickets_sends_enumerated_ids_and_reads_the_state_back(trt, tfake):
+    r = await trt.execute("mb_delete_tickets", {"ticket_ids": [59, 60]}, READ_WRITE)
+    assert r["ok"] and "dry_run" not in r
     assert tfake.posted("/extjs/ticketedit/deletetickets") == [{"ticketid0": "59", "ticketid1": "60"}]
     assert [t["ticketid"] for t in r["state_after"]] == [59, 60]
+    assert "Real Name" not in json.dumps(r)  # no personal data in the read-back
 
 
-async def test_delete_tickets_needs_the_gated_scope_and_a_token(trt, tfake):
-    r = await trt.execute("mb_delete_tickets", gated({"ticket_ids": [59]}), READ_WRITE)
+async def test_delete_tickets_and_notes_have_no_reason_or_dry_run(trt, tfake):
+    for tool, args in (("mb_delete_tickets", {"ticket_ids": [59]}), ("mb_delete_ticket_note", {"noteid": 33})):
+        for extra in ({"reason": "x y z"}, {"dry_run": True}):
+            r = await trt.execute(tool, {**args, **extra}, READ_WRITE)
+            assert r["error"]["code"] == "validation", (tool, extra)
+    assert tfake.calls == []
+
+
+async def test_delete_tickets_needs_the_write_scope(trt, tfake):
+    r = await trt.execute("mb_delete_tickets", {"ticket_ids": [59]}, frozenset({"read"}))
     assert r["error"]["code"] == "scope_denied"
-    r = await trt.execute("mb_delete_tickets", gated({"ticket_ids": [59]}, dry_run=False), ALL_SCOPE_SET)
-    assert r["error"]["code"] == "approval_required"
     assert tfake.posted("/extjs/ticketedit/deletetickets") == []
 
 
-async def test_delete_note_is_gated_and_sends_noteid(trt, tfake):
-    args = {"noteid": 33}
-    token = (await trt.execute("mb_delete_ticket_note", gated(args), ALL_SCOPE_SET))["data"]["approval_token"]
-    assert tfake.posted("/extjs/ticketedit/deletenotes") == []
-    r = await trt.execute("mb_delete_ticket_note", gated(args, dry_run=False, approval_token=token), ALL_SCOPE_SET)
+async def test_delete_note_sends_noteid(trt, tfake):
+    r = await trt.execute("mb_delete_ticket_note", {"noteid": 33}, READ_WRITE)
     assert r["ok"] and tfake.posted("/extjs/ticketedit/deletenotes") == [{"noteid": "33"}]
 
 
 async def test_ticket_notes_are_not_written_to_the_audit_log(settings, tfake, tmp_path):
     from dataclasses import replace
     from mb_mcp.audit import AuditLog
-    from mb_mcp.gating import ApprovalStore
     from mb_mcp.runtime import Runtime
     path = tmp_path / "audit.log"
-    rt = Runtime(replace(settings), tfake, ApprovalStore(), AuditLog(str(path)))
+    rt = Runtime(replace(settings), tfake, AuditLog(str(path)))
     await rt.execute("mb_add_ticket_note", {"ticketid": 59, "note": "customer said secret-phrase"}, READ_WRITE)
     text = path.read_text(encoding="utf-8")
     assert "secret-phrase" not in text and "mb_add_ticket_note" in text

@@ -142,7 +142,7 @@ SCHEMAS: dict[str, ToolSchema] = {
         ("swtypeid", "swtypename", "devicetypeid", "numports"),
         ("snmp_type", "dont_use_uplink", "do_check_switch_port", "do_mac_autoreg_by_radius", "use_circut_template",
          "use_unit_find", "use_module_find", "do_ip_unnumbered", "strict_dhcp_mode", "montype", "cisco")),
-    # ---- account_state ----
+    # ---- account ----
     "mb_freeze_user": _S(("uid", "do_freeze_now"), _FREEZE_OPT,
                          defaults={"do_return_abonplata": 0, "freeze_do_ever": 0, "cena_freeze": 0,
                                    "cena_sutok_freeze": 0, "count_free_freeze": 0, "count_free_freeze_use": 0,

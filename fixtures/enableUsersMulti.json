@@ -13,6 +13,6 @@
     ]
   },
   "response": {"envelope": {"success": "boolean"}, "on_failure": "{success: false}; the UI shows an error toast"},
-  "scope_proposal": "account_state (enabling accounts changes service; mirrors freeze/disable)",
+  "scope_proposal": "account (enabling accounts changes service; mirrors freeze/disable)",
   "notes": ["Not in the upstream wrapper. Applies to every uid in the list in one call; no per-call cap is visible in the UI code."]
 }

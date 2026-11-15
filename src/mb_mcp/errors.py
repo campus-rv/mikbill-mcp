@@ -10,7 +10,6 @@ CODES = (
     "timeout",
     "validation",
     "scope_denied",
-    "approval_required",
     "conflict",
     "precondition_failed",
     "denied_by_settings",

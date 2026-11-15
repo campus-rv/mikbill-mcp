@@ -7,7 +7,6 @@ from mcp.client import Client
 
 from conftest import ALL_SCOPE_SET, FakeClient
 from mb_mcp.config import ALL_SCOPES, Settings
-from mb_mcp.gating import ApprovalStore
 from mb_mcp.http_auth import request_scopes
 from mb_mcp.runtime import Runtime
 from mb_mcp.server import build_server
@@ -16,7 +15,7 @@ from mb_mcp.server import build_server
 def make(scopes, fake=None):
     settings = Settings(base_url="https://x.test", login="a", password="b", scopes=frozenset(scopes), max_bulk=5)
     fake = fake or FakeClient()
-    return Runtime(settings, fake, ApprovalStore()), fake
+    return Runtime(settings, fake), fake
 
 
 def payload(result):
@@ -27,7 +26,7 @@ async def test_list_tools_by_scope():
     rt, _ = make({"read", "write"})
     async with Client(build_server(rt)) as client:
         tools = (await client.list_tools()).tools
-    assert len(tools) == 35
+    assert len(tools) == 39
     names = {t.name for t in tools}
     assert "mb_kick_user" in names and "mb_delete_user" not in names and "mb_add_house" not in names
 
@@ -62,16 +61,38 @@ async def test_errors_set_is_error():
     assert denied.is_error and payload(denied)["error"]["code"] == "scope_denied"
 
 
-async def test_gated_two_step_flow_through_the_sdk():
+async def test_gated_single_tool_executes_once_and_bulk_tool_previews_first_through_the_sdk():
     rt, fake = make(ALL_SCOPES)
     args = {"uid": 1, "bughtypeid": 17, "deposit": 10, "prim2": "note", "reason": "sdk test"}
+    bulk = {"uids": [1, 2], "reason": "sdk test"}
     async with Client(build_server(rt)) as client:
-        preview = payload(await client.call_tool("mb_create_payment", args))
-        assert preview["dry_run"] is True and fake.posted("/json/users/paymentdoflex") == []
-        done = await client.call_tool("mb_create_payment", {**args, "dry_run": False,
-                                                           "approval_token": preview["data"]["approval_token"]})
-    assert not done.is_error
-    assert len(fake.posted("/json/users/paymentdoflex")) == 1
+        done = await client.call_tool("mb_create_payment", args)
+        assert not done.is_error and len(fake.posted("/json/users/paymentdoflex")) == 1
+        preview = payload(await client.call_tool("mb_bulk_unfreeze_users", bulk))
+        assert preview["dry_run"] is True and fake.posted("/json/users/unfreezeusersmulti") == []
+        assert "approval_token" not in preview["data"]
+        ran = await client.call_tool("mb_bulk_unfreeze_users", {**bulk, "dry_run": False})
+    assert not ran.is_error and len(fake.posted("/json/users/unfreezeusersmulti")) == 1
+
+
+async def test_tools_carry_annotations_and_titles_over_the_sdk():
+    rt, _ = make(ALL_SCOPES)
+    async with Client(build_server(rt)) as client:
+        tools = {t.name: t for t in (await client.list_tools()).tools}
+    assert len(tools) == 95
+    for tool in tools.values():
+        assert tool.annotations is not None and tool.title, tool.name
+        assert tool.annotations.open_world_hint is False
+    assert tools["mb_search_users"].annotations.read_only_hint is True
+    assert tools["mb_create_user"].annotations.destructive_hint is False
+    assert tools["mb_create_payment"].annotations.read_only_hint is False
+    assert tools["mb_create_payment"].annotations.destructive_hint is True
+    assert tools["mb_create_payment"].annotations.idempotent_hint is False
+    assert tools["mb_delete_user"].annotations.destructive_hint is True
+    assert tools["mb_delete_user"].annotations.idempotent_hint is True
+    assert tools["mb_bulk_payment"].input_schema["properties"]["dry_run"]["default"] is True
+    assert tools["mb_create_payment"].input_schema["properties"]["dry_run"]["default"] is False
+    assert "approval_token" not in tools["mb_create_payment"].input_schema["properties"]
 
 
 async def test_request_scopes_context_limits_listing():

@@ -11,7 +11,7 @@ from mcp.server.lowlevel import Server
 from .audit import AuditLog
 from .client import MikbillClient
 from .config import ConfigError, Settings
-from .gating import ApprovalStore
+from .endpoints import tool_annotations, tool_title
 from .http_auth import BearerAuthMiddleware, request_principal, request_scopes
 from .runtime import Runtime, to_text
 
@@ -21,7 +21,7 @@ SERVER_NAME = "mikbill-mcp"
 
 
 def build_runtime(settings: Settings, client: Any | None = None) -> Runtime:
-    return Runtime(settings, client or MikbillClient(settings), ApprovalStore(), AuditLog(settings.audit_file))
+    return Runtime(settings, client or MikbillClient(settings), AuditLog(settings.audit_file))
 
 
 def current_scopes(settings: Settings) -> frozenset[str]:
@@ -33,7 +33,9 @@ def current_scopes(settings: Settings) -> frozenset[str]:
 def build_server(runtime: Runtime) -> Server:
     async def on_list_tools(ctx: Any, params: Any) -> types.ListToolsResult:
         eps = runtime.tools_for(current_scopes(runtime.settings))
-        return types.ListToolsResult(tools=[types.Tool(**runtime.describe(ep)) for ep in eps])
+        return types.ListToolsResult(tools=[
+            types.Tool(**runtime.describe(ep), title=tool_title(ep), annotations=types.ToolAnnotations(**tool_annotations(ep)))
+            for ep in eps])
 
     async def on_call_tool(ctx: Any, params: types.CallToolRequestParams) -> types.CallToolResult:
         envelope = await runtime.execute(params.name, params.arguments or {}, current_scopes(runtime.settings),

@@ -13,7 +13,6 @@ from conftest import FakeClient
 from mb_mcp.config import HttpToken, Settings
 from mb_mcp.http_auth import hash_token
 from mb_mcp.runtime import Runtime
-from mb_mcp.gating import ApprovalStore
 from mb_mcp.server import build_http_app
 
 TOKEN_RO = "read-only-token"
@@ -36,7 +35,7 @@ def server_url():
         http_tokens=(HttpToken("ro", hash_token(TOKEN_RO), frozenset({"read"})),
                      HttpToken("fin", hash_token(TOKEN_FIN), frozenset({"read", "finance"}))),
     )
-    runtime = Runtime(settings, FakeClient(), ApprovalStore())
+    runtime = Runtime(settings, FakeClient())
     app = build_http_app(runtime, "127.0.0.1", port)
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
     thread = threading.Thread(target=server.run, daemon=True)

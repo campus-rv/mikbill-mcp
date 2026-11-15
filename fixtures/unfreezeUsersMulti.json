@@ -13,6 +13,6 @@
     ]
   },
   "response": {"envelope": {"success": "boolean"}},
-  "scope_proposal": "account_state (freeze-related)",
+  "scope_proposal": "account (freeze-related)",
   "notes": ["Pairs with the single-user freeze endpoint /json/users/dofreezeuserfl (upstream setFreezeUser)."]
 }

@@ -22,10 +22,10 @@
     {"tool": "mb_add_packet", "uri": "/json/tarif/addtarifflex", "fields": ["tarif"], "confidence": "low", "scope": "finance", "note": "Packet fields not extracted."},
     {"tool": "mb_edit_packet", "uri": "/json/tarif/updatetariffl", "fields": ["set_list", "unset_list"], "confidence": "low", "scope": "finance"},
     {"tool": "mb_set_personal_service", "uri": "/json/users/setpersonalserviceuser", "fields": [], "confidence": "none", "scope": "finance", "note": "Open the form."},
-    {"tool": "mb_freeze_user", "uri": "/json/users/dofreezeuserfl", "fields": ["do_freeze_now", "do_return_abonplata", "freeze_do_ever", "freeze_date_start", "freeze_date_stop", "cena_freeze", "cena_sutok_freeze", "count_free_freeze", "count_free_freeze_use", "cena_unfreeze", "freezefixedmonthnum"], "confidence": "medium", "scope": "account_state"},
-    {"tool": "mb_delete_house", "uri": "/json/options/delhouseflex", "fields": ["house"], "confidence": "low", "scope": "account_state", "note": "Upstream sends houseid. Confirm."},
-    {"tool": "mb_delete_switch", "uri": "/json/options/delswitchflex", "fields": ["nameswitch", "swtypename"], "confidence": "low", "scope": "account_state", "note": "Upstream sends swid-based call. Confirm."},
-    {"tool": "mb_delete_switch_type", "uri": "/json/options/delswitchtypeflex", "fields": ["swtypename"], "confidence": "low", "scope": "account_state"},
+    {"tool": "mb_freeze_user", "uri": "/json/users/dofreezeuserfl", "fields": ["do_freeze_now", "do_return_abonplata", "freeze_do_ever", "freeze_date_start", "freeze_date_stop", "cena_freeze", "cena_sutok_freeze", "count_free_freeze", "count_free_freeze_use", "cena_unfreeze", "freezefixedmonthnum"], "confidence": "medium", "scope": "account"},
+    {"tool": "mb_delete_house", "uri": "/json/options/delhouseflex", "fields": ["house"], "confidence": "low", "scope": "account", "note": "Upstream sends houseid. Confirm."},
+    {"tool": "mb_delete_switch", "uri": "/json/options/delswitchflex", "fields": ["nameswitch", "swtypename"], "confidence": "low", "scope": "account", "note": "Upstream sends swid-based call. Confirm."},
+    {"tool": "mb_delete_switch_type", "uri": "/json/options/delswitchtypeflex", "fields": ["swtypename"], "confidence": "low", "scope": "account"},
     {"tool": "mb_create_user_group", "uri": "/json/options/setusersgroup", "fields": [], "confidence": "none", "scope": "admin", "note": "Open the group form."},
     {"tool": "mb_update_user_group", "uri": "/json/options/setusersgroup", "fields": [], "confidence": "none", "scope": "admin", "note": "Same URI as create. Probably one endpoint with an id field. Confirm."}
   ]

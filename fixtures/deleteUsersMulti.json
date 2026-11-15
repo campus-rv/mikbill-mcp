@@ -13,7 +13,7 @@
     ]
   },
   "response": {"envelope": {"success": "boolean"}},
-  "scope_proposal": "account_state, gated, dry-run required. Irreversible in the UI sense: the confirm window does not show a count.",
+  "scope_proposal": "account, gated, dry-run required. Irreversible in the UI sense: the confirm window does not show a count.",
   "notes": [
     "Destructive. The UI deletes accounts with no second check beyond the confirm window. The MCP must show the full uid list and count in the dry-run preview.",
     "Field `message` appears in the UI source; its role (server message or request field) is unknown."

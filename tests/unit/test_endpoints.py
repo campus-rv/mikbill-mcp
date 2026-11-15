@@ -7,7 +7,7 @@ from mb_mcp.schemas import SCHEMAS
 
 def test_tool_counts_per_scope():
     counts = Counter(ep.scope for ep in ALL)
-    assert counts == {"read": 26, "write": 9, "account_state": 15, "finance": 13, "admin": 32}
+    assert counts == {"read": 26, "write": 13, "account": 11, "finance": 13, "admin": 32}
     assert len(ALL) == 95
 
 
@@ -39,16 +39,23 @@ def test_pending_endpoints_are_not_registered():
     assert not any(uri in uris for uri, _ in PENDING)
 
 
-def test_every_delete_is_gated():
+# Deletes of these four are in the ungated write scope (the user decided; the client asks before the call).
+WRITE_DELETES = {"mb_delete_sticky_note", "mb_delete_user_device", "mb_delete_tickets", "mb_delete_ticket_note"}
+
+
+def test_every_delete_is_gated_except_the_four_in_the_write_scope():
     for ep in ALL:
-        if "delete" in ep.tool:
+        if "delete" in ep.tool and ep.tool not in WRITE_DELETES:
             assert ep.gated, ep.tool
+    by_name = {ep.tool: ep for ep in ALL}
+    for name in WRITE_DELETES:
+        assert by_name[name].scope == "write" and not by_name[name].gated, name
 
 
-def test_soft_deletes_and_full_delete_are_gated_account_state():
+def test_soft_deletes_and_full_delete_are_gated_account():
     by_name = {ep.tool: ep for ep in ALL}
     for name in ("mb_delete_user", "mb_bulk_delete_users", "mb_delete_disconnected_user", "mb_delete_user_full"):
-        assert by_name[name].scope == "account_state" and by_name[name].gated, name
+        assert by_name[name].scope == "account" and by_name[name].gated, name
 
 
 # Address objects (settlements, neighborhoods, lanes, houses) and infrastructure objects: every create, edit and
@@ -71,11 +78,12 @@ def test_address_and_infrastructure_objects_are_gated_admin_for_create_edit_and_
             assert f"mb_{verb}_{obj}" in by_name, (verb, obj)
 
 
-def test_write_scope_is_only_users_devices_notes_kick_and_tickets():
+def test_write_scope_is_users_devices_notes_kick_tickets_and_their_deletes():
     write = {ep.tool for ep in ALL if ep.scope == "write"}
     assert write == {
         "mb_create_user", "mb_update_user", "mb_kick_user", "mb_create_sticky_note", "mb_add_user_device",
         "mb_create_ticket", "mb_update_ticket", "mb_add_ticket_note", "mb_set_ticket_status",
+        "mb_delete_sticky_note", "mb_delete_user_device", "mb_delete_tickets", "mb_delete_ticket_note",
     }
     assert all(not ep.gated for ep in ALL if ep.scope == "write")
 
@@ -88,3 +96,53 @@ def test_delete_house_never_uses_delete_list():
 
 def test_group_delete_uses_delete_list():
     assert SCHEMAS["mb_delete_user_group"].rename == {"usersgroupid": "delete_list"}
+
+
+def test_the_account_scope_replaced_account_state():
+    from mb_mcp.config import ALL_SCOPES
+    assert "account" in ALL_SCOPES and "account_state" not in ALL_SCOPES
+    assert {ep.scope for ep in ALL} == set(ALL_SCOPES)
+    assert {ep.tool for ep in ALL if ep.scope == "account"} == {
+        "mb_freeze_user", "mb_bulk_enable_users", "mb_bulk_disable_users", "mb_bulk_unfreeze_users",
+        "mb_bulk_enable_internet", "mb_disconnect_user", "mb_bulk_delete_users", "mb_delete_user",
+        "mb_delete_disconnected_user", "mb_delete_user_full", "mb_restore_user"}
+
+
+# ---- MCP tool annotations ----------------------------------------------------------------------------------
+
+def test_every_tool_has_annotations_and_a_title():
+    from mb_mcp.endpoints import tool_annotations, tool_title
+    for ep in ALL:
+        a = tool_annotations(ep)
+        assert a["open_world_hint"] is False and "read_only_hint" in a, ep.tool
+        assert tool_title(ep) and not tool_title(ep).startswith("Mb"), ep.tool
+
+
+def test_read_tools_are_read_only_and_everything_else_is_not():
+    from mb_mcp.endpoints import tool_annotations
+    for ep in ALL:
+        assert tool_annotations(ep)["read_only_hint"] is (ep.scope == "read"), ep.tool
+        if ep.scope == "read":
+            assert "destructive_hint" not in tool_annotations(ep)
+
+
+def test_additive_creates_are_not_destructive_and_deletes_payments_and_updates_are():
+    from mb_mcp.endpoints import tool_annotations
+    by_name = {ep.tool: ep for ep in ALL}
+    for name in ("mb_create_user", "mb_create_ticket", "mb_create_sticky_note", "mb_add_user_device", "mb_add_switch",
+                 "mb_add_packet", "mb_create_user_group", "mb_add_ticket_note"):
+        assert tool_annotations(by_name[name])["destructive_hint"] is False, name
+    for name in ("mb_update_user", "mb_kick_user", "mb_delete_user", "mb_bulk_delete_users", "mb_delete_tickets",
+                 "mb_delete_user_device", "mb_create_payment", "mb_bulk_payment", "mb_change_tariff", "mb_freeze_user",
+                 "mb_edit_house", "mb_delete_settlement", "mb_set_ticket_status", "mb_bulk_remove_credit"):
+        assert tool_annotations(by_name[name])["destructive_hint"] is True, name
+
+
+def test_idempotent_hint_is_for_deletes_edits_updates_and_setters_only():
+    from mb_mcp.endpoints import tool_annotations
+    by_name = {ep.tool: ep for ep in ALL}
+    for name in ("mb_delete_user", "mb_bulk_delete_users", "mb_edit_house", "mb_update_user", "mb_set_ticket_status",
+                 "mb_set_personal_service", "mb_unset_personal_service"):
+        assert tool_annotations(by_name[name])["idempotent_hint"] is True, name
+    for name in ("mb_create_payment", "mb_bulk_payment", "mb_create_user", "mb_add_switch", "mb_bulk_issue_credit"):
+        assert tool_annotations(by_name[name])["idempotent_hint"] is False, name
