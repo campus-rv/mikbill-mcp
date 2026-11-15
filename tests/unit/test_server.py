@@ -1,4 +1,4 @@
-﻿"""End-to-end through the real MCP SDK: in-memory client session against build_server()."""
+"""End-to-end through the real MCP SDK: in-memory client session against build_server()."""
 
 import json
 
@@ -27,9 +27,9 @@ async def test_list_tools_by_scope():
     rt, _ = make({"read", "write"})
     async with Client(build_server(rt)) as client:
         tools = (await client.list_tools()).tools
-    assert len(tools) == 39
+    assert len(tools) == 24
     names = {t.name for t in tools}
-    assert "mb_kick_user" in names and "mb_delete_user" not in names
+    assert "mb_kick_user" in names and "mb_delete_user" not in names and "mb_add_house" not in names
 
 
 async def test_all_scopes_list_80_tools_with_schemas():
@@ -57,7 +57,7 @@ async def test_errors_set_is_error():
     rt, _ = make({"read"})
     async with Client(build_server(rt)) as client:
         bad = await client.call_tool("mb_get_user", {})
-        denied = await client.call_tool("mb_delete_user", {"uid": 1, "reason": "test"})
+        denied = await client.call_tool("mb_bulk_delete_users", {"uids": [1], "reason": "test"})
     assert bad.is_error and payload(bad)["error"]["code"] == "validation"
     assert denied.is_error and payload(denied)["error"]["code"] == "scope_denied"
 

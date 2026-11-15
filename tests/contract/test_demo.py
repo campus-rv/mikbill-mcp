@@ -185,43 +185,45 @@ async def test_read_tools(demo):
 
 
 async def test_scope_and_dry_run_guards_are_enforced_live(demo):
-    r = await demo.rt.execute("mb_delete_user", {"uid": 1, "reason": REASON}, frozenset({"read", "write"}), "contract")
+    # mb_bulk_delete_users is gated (account_state). None of these calls reaches Mikbill.
+    r = await demo.rt.execute("mb_bulk_delete_users", {"uids": [1], "reason": REASON}, frozenset({"read", "write"}),
+                              "contract")
     assert r["error"]["code"] == "scope_denied"
-    await demo.err("mb_delete_user", "validation", uid=1)  # reason is required
-    await demo.err("mb_delete_user", "approval_required", uid=1, reason=REASON, dry_run=False)
+    await demo.err("mb_bulk_delete_users", "validation", uids=[1])  # reason is required
+    await demo.err("mb_bulk_delete_users", "approval_required", uids=[1], reason=REASON, dry_run=False)
 
 
 # ---- reference data -------------------------------------------------------------------------
 
 async def test_reference_data_crud(demo):
     s_name = demo.name("S")
-    r = await demo.ok("mb_add_settlement", settlementname=s_name)
+    r = await demo.gated_ok("mb_add_settlement", settlementname=s_name)
     sid = int(find(r["data"], "settlementid"))
     demo.defer(f"settlement {sid}", lambda: demo.gated("mb_delete_settlement", settlementid=sid))
-    await demo.ok("mb_edit_settlement", settlementid=sid, settlementname=s_name + "b")
+    await demo.gated_ok("mb_edit_settlement", settlementid=sid, settlementname=s_name + "b")
     assert any(int(x["settlementid"]) == sid and x["settlementname"].endswith("b")
                for x in (await demo.ok("mb_list_settlements"))["data"])
 
-    r = await demo.ok("mb_add_neighborhood", settlementid=sid, neighborhoodname=demo.name("N"))
+    r = await demo.gated_ok("mb_add_neighborhood", settlementid=sid, neighborhoodname=demo.name("N"))
     nid = int(find(r["data"], "neighborhoodid"))
     demo.defer(f"neighborhood {nid}", lambda: demo.gated("mb_delete_neighborhood", neighborhoodid=nid))
-    await demo.ok("mb_edit_neighborhood", settlementid=sid, neighborhoodid=nid, neighborhoodname=demo.name("Nb"))
+    await demo.gated_ok("mb_edit_neighborhood", settlementid=sid, neighborhoodid=nid, neighborhoodname=demo.name("Nb"))
 
-    r = await demo.ok("mb_add_lane", settlementid=sid, lane=demo.name("L"))
+    r = await demo.gated_ok("mb_add_lane", settlementid=sid, lane=demo.name("L"))
     lid = int(find(r["data"], "laneid"))
     demo.defer(f"lane {lid}", lambda: demo.gated("mb_delete_lane", laneid=lid))
-    await demo.ok("mb_edit_lane", settlementid=sid, laneid=lid, lane=demo.name("Lb"))
+    await demo.gated_ok("mb_edit_lane", settlementid=sid, laneid=lid, lane=demo.name("Lb"))
 
-    r = await demo.ok("mb_add_house", house=demo.name("H"), laneid=lid, neighborhoodid=nid, porches=1, floors=1,
+    r = await demo.gated_ok("mb_add_house", house=demo.name("H"), laneid=lid, neighborhoodid=nid, porches=1, floors=1,
                       app_count_id="1", postal_index="00000")
     hid = int(find(r["data"], "houseid"))
     demo.defer(f"house {hid}", lambda: demo.gated("mb_delete_house", houseid=hid))
-    await demo.ok("mb_edit_house", houseid=hid, house=demo.name("Hb"), laneid=lid, neighborhoodid=nid, porches=2, floors=2)
+    await demo.gated_ok("mb_edit_house", houseid=hid, house=demo.name("Hb"), laneid=lid, neighborhoodid=nid, porches=2, floors=2)
 
-    r = await demo.ok("mb_add_sector", sector=demo.name("SEC"))
+    r = await demo.gated_ok("mb_add_sector", sector=demo.name("SEC"))
     secid = int(find(r["data"], "sectorid"))
     demo.defer(f"sector {secid}", lambda: demo.gated("mb_delete_sector", sectorid=secid))
-    await demo.ok("mb_edit_sector", sectorid=secid, sector=demo.name("SECb"))
+    await demo.gated_ok("mb_edit_sector", sectorid=secid, sector=demo.name("SECb"))
 
     # deletes, children first. The house has no users, so Mikbill's in-use check passes.
     await demo.gated_ok("mb_delete_house", houseid=hid); demo.done(f"house {hid}")
@@ -344,7 +346,7 @@ async def test_packet_device_type_group_and_network_objects(demo):
 
     # device type
     name = demo.name("DT")
-    await demo.ok("mb_add_dev_type", devtypename=name, type=0, default_cost=0, default_rent=0, default_owner=0,
+    await demo.gated_ok("mb_add_dev_type", devtypename=name, type=0, default_cost=0, default_rent=0, default_owner=0,
                   description="MCPTEST")
     dtid = next(int(t["devtypeid"]) for t in (await demo.ok("mb_list_dev_types"))["data"] if t["devtypename"] == name)
     demo.defer(f"devtype {dtid}", lambda: demo.gated("mb_delete_dev_type", devtypeid=dtid))
@@ -386,16 +388,16 @@ async def test_packet_device_type_group_and_network_objects(demo):
     await demo.gated_ok("mb_delete_nas", nasid=nasid); demo.done(f"nas {nasid}")
 
     # switch type and switch
-    r = await demo.ok("mb_add_switch_type", swtypename=demo.name("ST"), devicetypeid=1, numports=8, snmp_type=0,
+    r = await demo.gated_ok("mb_add_switch_type", swtypename=demo.name("ST"), devicetypeid=1, numports=8, snmp_type=0,
                       montype=0, cisco=0)
     stid = int(find(r["data"], "swtypeid"))
     demo.defer(f"switch type {stid}", lambda: demo.gated("mb_delete_switch_type", swtypeid=stid))
-    await demo.ok("mb_edit_switch_type", swtypeid=stid, swtypename=demo.name("STb"), devicetypeid=1, numports=12)
-    r = await demo.ok("mb_add_switch", nameswitch=demo.name("SW"), swtypeid=stid, ip="10.99.99.1",
+    await demo.gated_ok("mb_edit_switch_type", swtypeid=stid, swtypename=demo.name("STb"), devicetypeid=1, numports=12)
+    r = await demo.gated_ok("mb_add_switch", nameswitch=demo.name("SW"), swtypeid=stid, ip="10.99.99.1",
                       mac="00:00:00:00:99:01", address="MCPTEST")
     swid = int(find(r["data"], "swid"))
     demo.defer(f"switch {swid}", lambda: demo.gated("mb_delete_switch", swid=swid))
-    await demo.ok("mb_edit_switch", swid=swid, nameswitch=demo.name("SWb"), swtypeid=stid, ip="10.99.99.2")
+    await demo.gated_ok("mb_edit_switch", swid=swid, nameswitch=demo.name("SWb"), swtypeid=stid, ip="10.99.99.2")
     await demo.gated_ok("mb_delete_switch", swid=swid); demo.done(f"switch {swid}")
     await demo.gated_ok("mb_delete_switch_type", swtypeid=stid); demo.done(f"switch type {stid}")
 

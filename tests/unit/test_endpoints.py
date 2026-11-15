@@ -7,7 +7,7 @@ from mb_mcp.schemas import SCHEMAS
 
 def test_tool_counts_per_scope():
     counts = Counter(ep.scope for ep in ALL)
-    assert counts == {"read": 19, "write": 20, "account_state": 22, "finance": 13, "admin": 6}
+    assert counts == {"read": 19, "write": 5, "account_state": 11, "finance": 13, "admin": 32}
     assert len(ALL) == 80
 
 
@@ -39,10 +39,42 @@ def test_pending_endpoints_are_not_registered():
     assert not any(uri in uris for uri, _ in PENDING)
 
 
-def test_every_delete_is_in_a_gated_scope():
+def test_every_delete_is_gated():
     for ep in ALL:
         if "delete" in ep.tool:
             assert ep.gated, ep.tool
+
+
+def test_soft_deletes_and_full_delete_are_gated_account_state():
+    by_name = {ep.tool: ep for ep in ALL}
+    for name in ("mb_delete_user", "mb_bulk_delete_users", "mb_delete_disconnected_user", "mb_delete_user_full"):
+        assert by_name[name].scope == "account_state" and by_name[name].gated, name
+
+
+# Address objects (settlements, neighborhoods, lanes, houses) and infrastructure objects: every create, edit and
+# delete is in the gated admin scope.
+ADDRESS_OBJECTS = ("settlement", "neighborhood", "lane", "house")
+INFRASTRUCTURE = ("switch", "switch_type", "dev_type", "sector", "ip_pool", "real_ip", "nas")
+
+
+def test_address_and_infrastructure_objects_are_gated_admin_for_create_edit_and_delete():
+    by_name = {ep.tool: ep for ep in ALL}
+    for obj in ADDRESS_OBJECTS + INFRASTRUCTURE:
+        found = [n for n in by_name if n in (f"mb_add_{obj}", f"mb_edit_{obj}", f"mb_delete_{obj}",
+                                             f"mb_add_{obj}_block")]
+        assert found, obj
+        for name in found:
+            assert by_name[name].scope == "admin" and by_name[name].gated, name
+    # all three verbs exist for the address objects
+    for obj in ADDRESS_OBJECTS:
+        for verb in ("add", "edit", "delete"):
+            assert f"mb_{verb}_{obj}" in by_name, (verb, obj)
+
+
+def test_write_scope_is_only_users_devices_notes_and_kick():
+    write = {ep.tool for ep in ALL if ep.scope == "write"}
+    assert write == {"mb_create_user", "mb_update_user", "mb_kick_user", "mb_create_sticky_note", "mb_add_user_device"}
+    assert all(not ep.gated for ep in ALL if ep.scope == "write")
 
 
 def test_delete_house_never_uses_delete_list():

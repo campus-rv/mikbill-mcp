@@ -54,7 +54,7 @@ Tools in `finance`, `account_state`, and `admin` take three extra arguments:
 1. Call with `reason` (and no `dry_run`): the server returns a preview and a one-time `approval_token`. Nothing changes.
 2. Repeat the call with `dry_run: false`, the `approval_token`, and the same parameters. The token is single use, expires after 5 minutes, and is bound to the exact parameters.
 
-Soft deletes (`mb_delete_user`, `mb_bulk_delete_users`, `mb_delete_disconnected_user`) leave the account in the database with state 4. Passwords in Mikbill responses are masked in tool output.
+Soft deletes (`mb_delete_user`, `mb_bulk_delete_users`, `mb_delete_disconnected_user`) leave the account in the database with state 4. All three are gated. Passwords in Mikbill responses are masked in tool output.
 
 ## Run over stdio (Claude Code / Claude Desktop)
 

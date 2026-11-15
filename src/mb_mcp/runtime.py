@@ -31,6 +31,10 @@ READ_BACK_TOOLS = {"mb_delete_user", "mb_bulk_delete_users", "mb_delete_disconne
 # Check endpoints run during dry-run: tool -> (uri, parameters to send)
 CHECKS: dict[str, tuple[str, tuple[str, ...]]] = {
     "mb_delete_settlement": ("/json/options/checkdeletesettlement", ("settlementid",)),
+    # Mikbill's delete endpoints for these do NOT enforce the check (verified on the demo: a lane, neighborhood and
+    # settlement were deleted while a house still pointed at them), so the dry-run is where dependents show up.
+    "mb_delete_lane": ("/extjs/options/checkdellane", ("laneid",)),
+    "mb_delete_neighborhood": ("/json/options/checkdeleteneighborhood", ("neighborhoodid",)),
     "mb_delete_packet": ("/json/tarif/delchecktarifflex", ("gid",)),
 }
 

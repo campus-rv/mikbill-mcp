@@ -19,19 +19,21 @@ A tool is registered only when its scope is granted. Gated tools always go throu
 | Scope | Default | Gated | Tools | Contents |
 |---|---|---|---|---|
 | `read` | on | no | 19 | Lookups, histories, dictionaries, system options |
-| `write` | on | no | 20 | Create and edit: users, devices, dictionaries, switches; kick user |
-| `account_state` | off | yes | 22 | Freeze; bulk enable, disable, unfreeze, enable internet; disconnect; every delete (users, houses, switches, switch types, sticky notes, device types, settlements, neighborhoods, lanes, sectors, IP pools, real IPs, NAS) |
+| `write` | on | no | 5 | Create and edit users; add user devices; sticky notes; kick user |
+| `account_state` | off | yes | 11 | Freeze; bulk enable, disable, unfreeze, enable internet; disconnect; soft deletes (single, bulk, disconnected); full delete; sticky note delete |
 | `finance` | off | yes | 13 | Payments (single, bulk); tariff change; flex tariff (reactivate); packet add, edit, delete; personal service set and unset; credit remove (single, bulk); credit issue (bulk); voucher use |
-| `admin` | off | yes | 6 | User group create, update, delete; IP pool, real IP block, and NAS create |
+| `admin` | off | yes | 32 | User groups; address objects (settlements, neighborhoods, lanes, houses); infrastructure objects (sectors, switch types, switches, device types, IP pools, real IPs, NAS). Every create, edit and delete |
 
 Total: 80 tools. Blocked and denied tools are registered (see Blocked and denied).
 
-**Delete rule:** every delete is gated, regardless of entity type.
+**Delete rule:** every delete is gated, regardless of entity type. That includes the single-user soft delete `mb_delete_user`, which was briefly a plain `write` tool and was moved back to `account_state`.
+
+**Admin rule:** all changes to address objects (settlements, neighborhoods, lanes, houses) and infrastructure objects (sectors, switch types, switches, device types, IP pools, real IPs, NAS) need the `admin` scope and go through dry-run and approval: every create, edit and delete. The `write` scope is only users, user devices, sticky notes and kick.
 
 **Not in v1:**
 - `consoleMe` and `/extjs/options/consolecommands` (console execution)
 - `auth`, `authBilling` (client internals)
-- Discovered endpoints not yet verified or not decided: `delippoolsipflex`, `nagrasyncsubscriptions`, IP pool, real IP and NAS create endpoints (see Discovered endpoints)
+- Discovered endpoints not yet verified or not decided: `delippoolsipflex`, `nagrasyncsubscriptions` (see Discovered endpoints)
 
 ## Tool list
 
@@ -59,7 +61,7 @@ Total: 80 tools. Blocked and denied tools are registered (see Blocked and denied
 | `mb_list_user_groups` | getUsersGroupsList | `/json/options/usersgroupslist` |
 | `mb_get_system_options` | getSystemOptions | `/extjs/users/getsystemoptions` |
 
-### write (20, not gated)
+### write (5, not gated)
 
 | Tool | Upstream | URI |
 |---|---|---|
@@ -68,18 +70,8 @@ Total: 80 tools. Blocked and denied tools are registered (see Blocked and denied
 | `mb_kick_user` | userKickOnline | `/json/users/userkickfl` |
 | `mb_create_sticky_note` | createStickyNotesUser | `/extjs/users/createstickynotesuser` (`uid`, not `useruid`) |
 | `mb_add_user_device` | addUserDev | `/extjs/users/adduserdev` |
-| `mb_add_dev_type` | addDevType | `/json/users/adddevtype` |
-| `mb_add_settlement` / `mb_edit_settlement` | addSettlement / editSettlement | `/json/options/addsettlement` / `editsettlement` |
-| `mb_add_neighborhood` / `mb_edit_neighborhood` | addNeighborhood / editNeighborhood | `/json/options/addneighborhood` / `editneighborhood` |
-| `mb_add_house` / `mb_edit_house` | addHouse / editHouse | `/json/options/addhouseflex` / `edithouselaneflex` |
-| `mb_add_lane` / `mb_edit_lane` | addLane / editLane | `/json/options/addlanesflex` / `editlaneflex` |
-| `mb_add_sector` / `mb_edit_sector` | addSector / editSector | `/json/options/sectoraddflex` / `sectoreditflex` |
-| `mb_edit_switch` | editSwitch | `/json/options/editswitchflex` |
-| `mb_add_switch` | addSwitch | `/json/options/addswitchflex` (works with params) |
-| `mb_add_switch_type` | addSwitchType | `/json/options/addswitchtypeflex` (works with params) |
-| `mb_edit_switch_type` | editSwitchType | `/json/options/editswithchtypeflex` (upstream spelling kept) |
 
-### account_state (22, gated)
+### account_state (11, gated)
 
 | Tool | Upstream | URI | Param / note |
 |---|---|---|---|
@@ -93,18 +85,7 @@ Total: 80 tools. Blocked and denied tools are registered (see Blocked and denied
 | `mb_bulk_delete_users` | none | `/json/users/deleteusersmulti` | `set_users_list`. **Soft delete** |
 | `mb_delete_disconnected_user` | none | `/json/users/deluserotklflex` | uid, gid, itog_summa, type_list=2. **Soft delete** |
 | `mb_delete_user_full` | none | `/json/users/delfulluserflex` | Denied on the demo |
-| `mb_delete_house` | deleteHouse | `/json/options/delhouseflex` | `houseid` only. Blocked by design (see below) |
-| `mb_delete_switch` | delSwitch | `/json/options/delswitchflex` | swid |
-| `mb_delete_switch_type` | delSwitchType | `/json/options/delswitchtypeflex` | swtypeid |
 | `mb_delete_sticky_note` | none | `/extjs/users/deletestickynotesuser` | id |
-| `mb_delete_dev_type` | none | `/json/users/deletedevtype` | devtypeid |
-| `mb_delete_settlement` | none | `/json/options/deletesettlement` | settlementid. Check first: `checkdeletesettlement` |
-| `mb_delete_neighborhood` | none | `/json/options/deleteneighborhood` | neighborhoodid |
-| `mb_delete_lane` | none | `/json/options/dellaneflex` | laneid |
-| `mb_delete_sector` | none | `/json/options/sectordelflex` | sectorid |
-| `mb_delete_ip_pool` | none | `/json/options/delippoolsflex` | poolname |
-| `mb_delete_real_ip` | none | `/json/options/delrealipflex` | real (one address per call) |
-| `mb_delete_nas` | none | `/json/options/nasserverdelflex` | nasid |
 
 ### finance (13, gated)
 
@@ -124,16 +105,44 @@ Total: 80 tools. Blocked and denied tools are registered (see Blocked and denied
 | `mb_bulk_issue_credit` | none | `/json/users/creditmulti` | `set_users_list`, `credit` |
 | `mb_use_voucher` | none | `/json/users/usevaucherfl` | uid, code. A valid code adds balance |
 
-### admin (3, gated)
+### admin (32, gated)
+
+User groups, address objects (settlements, neighborhoods, lanes, houses) and infrastructure objects (sectors, switch types, switches, device types, IP pools, real IPs, NAS): create, edit and delete all need the `admin` scope, dry-run and approval.
 
 | Tool | Upstream | URI | Note |
 |---|---|---|---|
 | `mb_create_user_group` | createUsersGroup | `/json/options/setusersgroup` | usersgroupname, share, description |
 | `mb_update_user_group` | none | `/json/options/setusersgroup` | With `usersgroupid` it updates |
 | `mb_delete_user_group` | none | `/json/options/deleteusersgroup` | **Use `delete_list`**. `usersgroupid` always returns "in use" |
-| `mb_add_ip_pool` | none | `/json/options/addippoolsflex` | poolname. Verified |
-| `mb_add_real_ip_block` | none | `/json/options/addrealipflex` | localip, netmask, cidrmask, hostmin, hostmax, hosts. Verified |
-| `mb_add_nas` | none | `/json/options/nasaddflex` | nasname, nasip, secret, shortname. Verified |
+| `mb_add_settlement` | addSettlement | `/json/options/addsettlement` | settlementname |
+| `mb_edit_settlement` | editSettlement | `/json/options/editsettlement` | settlementid, settlementname |
+| `mb_delete_settlement` | none | `/json/options/deletesettlement` | settlementid. Dry-run runs `checkdeletesettlement` (Mikbill does not enforce it) |
+| `mb_add_neighborhood` | addNeighborhood | `/json/options/addneighborhood` | settlementid, neighborhoodname |
+| `mb_edit_neighborhood` | editNeighborhood | `/json/options/editneighborhood` | settlementid, neighborhoodid, neighborhoodname |
+| `mb_delete_neighborhood` | none | `/json/options/deleteneighborhood` | neighborhoodid. Dry-run runs `checkdeleteneighborhood` (not enforced) |
+| `mb_add_lane` | addLane | `/json/options/addlanesflex` | settlementid, lane |
+| `mb_edit_lane` | editLane | `/json/options/editlaneflex` | settlementid, laneid, lane |
+| `mb_delete_lane` | none | `/json/options/dellaneflex` | laneid. Dry-run runs `checkdellane` (not enforced) |
+| `mb_add_house` | addHouse | `/json/options/addhouseflex` | house, laneid, neighborhoodid, porches, floors, app_count_id, postal_index |
+| `mb_edit_house` | editHouse | `/json/options/edithouselaneflex` | houseid plus the add fields |
+| `mb_delete_house` | deleteHouse | `/json/options/delhouseflex` | `houseid` only. Blocked by design (see below) |
+| `mb_add_sector` | addSector | `/json/options/sectoraddflex` | sector |
+| `mb_edit_sector` | editSector | `/json/options/sectoreditflex` | sectorid, sector |
+| `mb_delete_sector` | none | `/json/options/sectordelflex` | sectorid |
+| `mb_add_switch_type` | addSwitchType | `/json/options/addswitchtypeflex` | Works with params (the upstream wrapper sends none) |
+| `mb_edit_switch_type` | editSwitchType | `/json/options/editswithchtypeflex` | Upstream spelling kept |
+| `mb_delete_switch_type` | delSwitchType | `/json/options/delswitchtypeflex` | swtypeid |
+| `mb_add_switch` | addSwitch | `/json/options/addswitchflex` | Works with params (the upstream wrapper sends none) |
+| `mb_edit_switch` | editSwitch | `/json/options/editswitchflex` | swid |
+| `mb_delete_switch` | delSwitch | `/json/options/delswitchflex` | swid |
+| `mb_add_dev_type` | addDevType | `/json/users/adddevtype` | devtypename required |
+| `mb_delete_dev_type` | none | `/json/users/deletedevtype` | devtypeid |
+| `mb_add_ip_pool` | none | `/json/options/addippoolsflex` | poolname |
+| `mb_delete_ip_pool` | none | `/json/options/delippoolsflex` | poolname |
+| `mb_add_real_ip_block` | none | `/json/options/addrealipflex` | localip, netmask, cidrmask, hostmin, hostmax, hosts |
+| `mb_delete_real_ip` | none | `/json/options/delrealipflex` | real (one address per call) |
+| `mb_add_nas` | none | `/json/options/nasaddflex` | nasname, nasip, secret, shortname |
+| `mb_delete_nas` | none | `/json/options/nasserverdelflex` | nasid |
 
 ## Delete parameters
 
@@ -146,11 +155,13 @@ Rules for the MCP:
 - `mb_delete_house` sends `houseid` only. Never `delete_list`.
 - `mb_delete_user_group` sends `delete_list`. Dry-run must count users with that `usersgroupid` first, because the in-use check was not reproduced with `delete_list`.
 - Every delete dry-run runs the check endpoint where one exists and lists what would be affected.
+- **Mikbill does not enforce its own dependency checks for settlements, neighborhoods and lanes.** On the demo, the check endpoints report dependents ("can't delete lane with houses"; `checkdeletesettlement` returns error 2), but `dellaneflex`, `deleteneighborhood` and `deletesettlement` delete anyway and leave the houses pointing at nothing (lane name empty, neighborhood 0, settlement empty). So these three deletes stay gated in `admin`, and their dry-runs run `checkdellane`, `checkdeleteneighborhood` and `checkdeletesettlement` so the dependents are visible before approval. Moving them to `write` was considered and rejected for this reason.
 
 ## Soft delete
 
 - `deluserflex`, `deleteusersmulti`, and `deluserotklflex` mark the account as deleted: state `4`, `deletedtable` `1`. The row stays in the database.
 - Tool descriptions say "soft delete" and name the effect. The output includes the state read back after the call.
+- All three soft-delete tools (`mb_delete_user`, `mb_bulk_delete_users`, `mb_delete_disconnected_user`) are gated in `account_state`: dry-run, approval token and reason. Bulk dry-runs list every uid.
 - Dry-run shows the target uid(s), current state, and count. Bulk dry-run lists every uid.
 - Restoration is not verified. Before a restore tool is added, check how the UI restores an account. `mb_restore_user` is not in v1.
 
@@ -234,9 +245,9 @@ Found in the admin UI and verified on MCPTEST records (details in `fixtures/disc
 | `vkluserflex` | `mb_enable_flex_tariff` | Verified (was blocked) | finance |
 | `unsetpersonalserviceuser` | `mb_unset_personal_service` | Verified | finance |
 | `usevaucherfl` | `mb_use_voucher` | Wrong-code path verified. Valid-code path not run | finance |
-| `delippoolsflex` | `mb_delete_ip_pool` | Verified | account_state |
-| `delrealipflex` | `mb_delete_real_ip` | Verified | account_state |
-| `nasserverdelflex` | `mb_delete_nas` | Verified | account_state |
+| `delippoolsflex` | `mb_delete_ip_pool` | Verified | admin |
+| `delrealipflex` | `mb_delete_real_ip` | Verified | admin |
+| `nasserverdelflex` | `mb_delete_nas` | Verified | admin |
 | `addippoolsflex` | `mb_add_ip_pool` | Verified | admin |
 | `addrealipflex` | `mb_add_real_ip_block` | Verified | admin |
 | `nasaddflex` | `mb_add_nas` | Verified | admin |
@@ -293,7 +304,7 @@ mikbill-mcp/
 
 ## Verification
 
-1. **Unit tests** (`pytest`, `respx`): login and MD5 hashing; one re-login on failure; `success: false` mapping; each error code in the mapping table, using recorded responses from the fixtures; scope registration (counts per scope: 19, 20, 22, 13, 6); dry-run makes no upstream POST; approval token single use and bound to params; bulk dry-run lists every uid; missing `reason` rejected; delete tools use the parameter listed in this spec; `mb_delete_house` never sends `delete_list`; bearer and Origin checks; redaction.
+1. **Unit tests** (`pytest`, `respx`): login and MD5 hashing; one re-login on failure; `success: false` mapping; each error code in the mapping table, using recorded responses from the fixtures; scope registration (counts per scope: 19, 5, 11, 13, 32); dry-run makes no upstream POST; approval token single use and bound to params; bulk dry-run lists every uid; missing `reason` rejected; delete tools use the parameter listed in this spec; `mb_delete_house` never sends `delete_list`; bearer and Origin checks; redaction.
 2. **Contract tests** (opt-in; demo or own test instance only, MCPTEST records only): the verified sequence through the MCP. Soft delete leaves state 4. Blocked tools return their mapped codes.
 3. **MCP inspector:** `npx @modelcontextprotocol/inspector python -m mb_mcp` lists tools per scope.
 4. **Client config check:** add to Claude Code or Claude Desktop with env vars; search a test user by `uid`.
@@ -302,7 +313,7 @@ mikbill-mcp/
 
 ## Assumptions
 
-1. Every delete is gated, including reference data. Confirmed by the user.
+1. Every delete is gated, including reference data and the single-user soft delete. Confirmed by the user.
 2. `mb_delete_user_full` stays registered and returns `denied_by_settings` where denied. Confirmed by the user.
 3. Discovered endpoints are included after verification. Confirmed by the user. Pending ones are listed above.
 4. Packet catalog edits, personal service, voucher use, and user-group create/update are gated because they change billing or privileges.

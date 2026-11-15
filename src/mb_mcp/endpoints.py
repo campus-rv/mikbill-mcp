@@ -4,6 +4,11 @@ Source: upstream kagatan/mb-admin-api (reference only) plus endpoints found in t
 and verified on the public demo (2026-11-15). Every upstream call is POST <uri> with
 form-encoded params and a JSON response with a `success` field.
 
+Scopes: read, write (not gated), and the gated scopes finance, account_state, admin.
+`admin` holds user groups, the address objects (settlements, neighborhoods, lanes, houses) and the
+infrastructure objects (sectors, switches, switch types, device types, IP pools, real IPs, NAS): every
+create, edit and delete, all gated. `write` is only users, user devices, sticky notes and kick.
+
 Status values:
   verified    executed on the demo with the request fields in fixtures/writes_verified.json
                 or fixtures/discovered_and_blockers.json
@@ -62,7 +67,7 @@ READ: list[Endpoint] = [
              note="Admin-only data (server paths and settings)."),
 ]
 
-# ---- write (20, not gated) ---------------------------------------------------------------
+# ---- write (5, not gated) ----------------------------------------------------------------
 
 WRITE: list[Endpoint] = [
     Endpoint("mb_create_user", "createAbonent", "/extjs/users/createabonent", "write",
@@ -72,28 +77,9 @@ WRITE: list[Endpoint] = [
     Endpoint("mb_create_sticky_note", "createStickyNotesUser", "/extjs/users/createstickynotesuser", "write",
              note="Use uid (not useruid)."),
     Endpoint("mb_add_user_device", "addUserDev", "/extjs/users/adduserdev", "write"),
-    Endpoint("mb_add_dev_type", "addDevType", "/json/users/adddevtype", "write",
-             note="Requires devtypename. Calling with no params still returns success."),
-    Endpoint("mb_add_settlement", "addSettlement", "/json/options/addsettlement", "write"),
-    Endpoint("mb_edit_settlement", "editSettlement", "/json/options/editsettlement", "write"),
-    Endpoint("mb_add_neighborhood", "addNeighborhood", "/json/options/addneighborhood", "write"),
-    Endpoint("mb_edit_neighborhood", "editNeighborhood", "/json/options/editneighborhood", "write"),
-    Endpoint("mb_add_house", "addHouse", "/json/options/addhouseflex", "write"),
-    Endpoint("mb_edit_house", "editHouse", "/json/options/edithouselaneflex", "write"),
-    Endpoint("mb_add_lane", "addLane", "/json/options/addlanesflex", "write"),
-    Endpoint("mb_edit_lane", "editLane", "/json/options/editlaneflex", "write"),
-    Endpoint("mb_add_sector", "addSector", "/json/options/sectoraddflex", "write"),
-    Endpoint("mb_edit_sector", "editSector", "/json/options/sectoreditflex", "write"),
-    Endpoint("mb_edit_switch", "editSwitch", "/json/options/editswitchflex", "write"),
-    Endpoint("mb_add_switch", "addSwitch", "/json/options/addswitchflex", "write",
-             note="Upstream wrapper calls it without params. With params it works."),
-    Endpoint("mb_add_switch_type", "addSwitchType", "/json/options/addswitchtypeflex", "write",
-             note="Upstream wrapper calls it without params. With params it works."),
-    Endpoint("mb_edit_switch_type", "editSwitchType", "/json/options/editswithchtypeflex", "write",
-             note="Upstream URI spelling kept."),
 ]
 
-# ---- account_state (22, gated) -----------------------------------------------------------
+# ---- account_state (11, gated) -----------------------------------------------------------
 
 ACCOUNT_STATE: list[Endpoint] = [
     Endpoint("mb_freeze_user", "setFreezeUser", "/json/users/dofreezeuserfl", "account_state", gated=True),
@@ -105,37 +91,18 @@ ACCOUNT_STATE: list[Endpoint] = [
              note="set_users_list."),
     Endpoint("mb_bulk_enable_internet", None, "/json/users/enableinternetmulti", "account_state", gated=True,
              note="set_users_list."),
-    Endpoint("mb_delete_user", None, "/json/users/deluserflex", "account_state", gated=True,
-             note="SOFT delete: state 4, deletedtable 1. Row remains."),
-    Endpoint("mb_bulk_delete_users", None, "/json/users/deleteusersmulti", "account_state", gated=True,
-             note="SOFT delete. set_users_list."),
-    Endpoint("mb_delete_user_full", None, "/json/users/delfulluserflex", "account_state", gated=True,
-             status="denied", note="'Denied by settings' on the demo. Maps to denied_by_settings."),
-    Endpoint("mb_delete_house", "deleteHouse", "/json/options/delhouseflex", "account_state", gated=True,
-             status="blocked",
-             note="Send houseid only. Error 8 means users still reference the house. delete_list reports success but deletes nothing."),
-    Endpoint("mb_delete_switch", "delSwitch", "/json/options/delswitchflex", "account_state", gated=True),
-    Endpoint("mb_delete_switch_type", "delSwitchType", "/json/options/delswitchtypeflex", "account_state",
-             gated=True),
-    Endpoint("mb_delete_sticky_note", None, "/extjs/users/deletestickynotesuser", "account_state", gated=True,
-             note="id."),
-    Endpoint("mb_delete_dev_type", None, "/json/users/deletedevtype", "account_state", gated=True,
-             note="devtypeid."),
-    Endpoint("mb_delete_settlement", None, "/json/options/deletesettlement", "account_state", gated=True,
-             note="Check first with checkdeletesettlement."),
-    Endpoint("mb_delete_neighborhood", None, "/json/options/deleteneighborhood", "account_state", gated=True),
-    Endpoint("mb_delete_lane", None, "/json/options/dellaneflex", "account_state", gated=True),
-    Endpoint("mb_delete_sector", None, "/json/options/sectordelflex", "account_state", gated=True),
     Endpoint("mb_disconnect_user", None, "/json/users/otkluserflex", "account_state", gated=True,
              note="Sets state 3 (disconnected). Takes uid and cena_freeze."),
+    Endpoint("mb_bulk_delete_users", None, "/json/users/deleteusersmulti", "account_state", gated=True,
+             note="SOFT delete. set_users_list."),
+    Endpoint("mb_delete_user", None, "/json/users/deluserflex", "account_state", gated=True,
+             note="SOFT delete: state 4, deletedtable 1. Row remains."),
     Endpoint("mb_delete_disconnected_user", None, "/json/users/deluserotklflex", "account_state", gated=True,
              note="SOFT delete of a disconnected user. uid, gid, itog_summa, type_list=2."),
-    Endpoint("mb_delete_ip_pool", None, "/json/options/delippoolsflex", "account_state", gated=True,
-             note="poolname."),
-    Endpoint("mb_delete_real_ip", None, "/json/options/delrealipflex", "account_state", gated=True,
-             note="One address per call (real)."),
-    Endpoint("mb_delete_nas", None, "/json/options/nasserverdelflex", "account_state", gated=True,
-             note="nasid."),
+    Endpoint("mb_delete_user_full", None, "/json/users/delfulluserflex", "account_state", gated=True,
+             status="denied", note="'Denied by settings' on the demo. Maps to denied_by_settings."),
+    Endpoint("mb_delete_sticky_note", None, "/extjs/users/deletestickynotesuser", "account_state", gated=True,
+             note="id."),
 ]
 
 # ---- finance (13, gated) -----------------------------------------------------------------
@@ -170,21 +137,66 @@ FINANCE: list[Endpoint] = [
              note="uid, code. Only the wrong-code path was exercised. A valid code adds balance."),
 ]
 
-# ---- admin (3, gated) --------------------------------------------------------------------
+# ---- admin (32, gated): user groups, address objects and infrastructure objects --------------
 
 ADMIN: list[Endpoint] = [
+    # user groups
     Endpoint("mb_create_user_group", "createUsersGroup", "/json/options/setusersgroup", "admin", gated=True,
              note="usersgroupname, share, description."),
     Endpoint("mb_update_user_group", None, "/json/options/setusersgroup", "admin", gated=True,
              note="Same URI as create. With usersgroupid it updates. Verified."),
     Endpoint("mb_delete_user_group", None, "/json/options/deleteusersgroup", "admin", gated=True,
              note="Use delete_list (the UI param). usersgroupid always returns 'in use'. Dry-run must count users in the group."),
+    # address objects: settlements, neighborhoods, lanes, houses
+    Endpoint("mb_add_settlement", "addSettlement", "/json/options/addsettlement", "admin", gated=True),
+    Endpoint("mb_edit_settlement", "editSettlement", "/json/options/editsettlement", "admin", gated=True),
+    Endpoint("mb_delete_settlement", None, "/json/options/deletesettlement", "admin", gated=True,
+             note="Check first with checkdeletesettlement. Mikbill does not enforce the check."),
+    Endpoint("mb_add_neighborhood", "addNeighborhood", "/json/options/addneighborhood", "admin", gated=True),
+    Endpoint("mb_edit_neighborhood", "editNeighborhood", "/json/options/editneighborhood", "admin", gated=True),
+    Endpoint("mb_delete_neighborhood", None, "/json/options/deleteneighborhood", "admin", gated=True,
+             note="Mikbill does not enforce its dependency check; the dry-run shows it."),
+    Endpoint("mb_add_lane", "addLane", "/json/options/addlanesflex", "admin", gated=True),
+    Endpoint("mb_edit_lane", "editLane", "/json/options/editlaneflex", "admin", gated=True),
+    Endpoint("mb_delete_lane", None, "/json/options/dellaneflex", "admin", gated=True,
+             note="Mikbill does not enforce its dependency check; the dry-run shows it."),
+    Endpoint("mb_add_house", "addHouse", "/json/options/addhouseflex", "admin", gated=True),
+    Endpoint("mb_edit_house", "editHouse", "/json/options/edithouselaneflex", "admin", gated=True),
+    Endpoint("mb_delete_house", "deleteHouse", "/json/options/delhouseflex", "admin", gated=True,
+             status="blocked",
+             note="Send houseid only. Error 8 means users still reference the house. delete_list reports success but deletes nothing."),
+    # sectors
+    Endpoint("mb_add_sector", "addSector", "/json/options/sectoraddflex", "admin", gated=True),
+    Endpoint("mb_edit_sector", "editSector", "/json/options/sectoreditflex", "admin", gated=True),
+    Endpoint("mb_delete_sector", None, "/json/options/sectordelflex", "admin", gated=True),
+    # switch types and switches
+    Endpoint("mb_add_switch_type", "addSwitchType", "/json/options/addswitchtypeflex", "admin", gated=True,
+             note="Upstream wrapper calls it without params. With params it works."),
+    Endpoint("mb_edit_switch_type", "editSwitchType", "/json/options/editswithchtypeflex", "admin", gated=True,
+             note="Upstream URI spelling kept."),
+    Endpoint("mb_delete_switch_type", "delSwitchType", "/json/options/delswitchtypeflex", "admin", gated=True),
+    Endpoint("mb_add_switch", "addSwitch", "/json/options/addswitchflex", "admin", gated=True,
+             note="Upstream wrapper calls it without params. With params it works."),
+    Endpoint("mb_edit_switch", "editSwitch", "/json/options/editswitchflex", "admin", gated=True),
+    Endpoint("mb_delete_switch", "delSwitch", "/json/options/delswitchflex", "admin", gated=True),
+    # device types
+    Endpoint("mb_add_dev_type", "addDevType", "/json/users/adddevtype", "admin", gated=True,
+             note="Requires devtypename. Calling with no params still returns success."),
+    Endpoint("mb_delete_dev_type", None, "/json/users/deletedevtype", "admin", gated=True,
+             note="devtypeid."),
+    # IP pools, real IPs, NAS
     Endpoint("mb_add_ip_pool", None, "/json/options/addippoolsflex", "admin", gated=True,
              note="poolname. Verified (created MCPTEST_POOL)."),
+    Endpoint("mb_delete_ip_pool", None, "/json/options/delippoolsflex", "admin", gated=True,
+             note="poolname."),
     Endpoint("mb_add_real_ip_block", None, "/json/options/addrealipflex", "admin", gated=True,
              note="localip, netmask, cidrmask, hostmin, hostmax, hosts. Verified (created 254 addresses)."),
+    Endpoint("mb_delete_real_ip", None, "/json/options/delrealipflex", "admin", gated=True,
+             note="One address per call (real)."),
     Endpoint("mb_add_nas", None, "/json/options/nasaddflex", "admin", gated=True,
              note="nasname, nasip, secret, shortname. Verified (created MCPTEST_NAS)."),
+    Endpoint("mb_delete_nas", None, "/json/options/nasserverdelflex", "admin", gated=True,
+             note="nasid."),
 ]
 
 ALL: list[Endpoint] = READ + WRITE + ACCOUNT_STATE + FINANCE + ADMIN

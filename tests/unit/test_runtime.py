@@ -17,9 +17,17 @@ def names(runtime, scopes):
 # ---- scopes and listing ---------------------------------------------------------------------
 
 def test_listing_respects_scopes(runtime):
-    assert len(names(runtime, READ_WRITE)) == 39
+    assert len(names(runtime, READ_WRITE)) == 24
+    assert "mb_add_settlement" not in names(runtime, READ_WRITE)  # address objects are admin
+    assert "mb_add_house" not in names(runtime, READ_WRITE)
+    assert "mb_add_house" in names(runtime, frozenset({"read", "admin"}))
+    assert "mb_delete_settlement" not in names(runtime, READ_WRITE)
+    assert "mb_add_switch" not in names(runtime, READ_WRITE)
+    assert "mb_add_switch" in names(runtime, frozenset({"read", "admin"}))
     assert len(names(runtime, ALL_SCOPE_SET)) == 80
-    assert "mb_delete_user" not in names(runtime, READ_WRITE)
+    assert "mb_delete_user" not in names(runtime, READ_WRITE)  # soft delete is gated account_state
+    assert "mb_delete_user" in names(runtime, frozenset({"read", "account_state"}))
+    assert "mb_bulk_delete_users" not in names(runtime, READ_WRITE)
     assert "mb_create_payment" not in names(runtime, frozenset({"read", "write", "account_state"}))
 
 
@@ -41,7 +49,7 @@ def test_every_tool_has_a_valid_input_schema(runtime):
 
 
 async def test_scope_denied_for_ungranted_tool(runtime, fake):
-    r = await runtime.execute("mb_delete_user", {"uid": 1, "reason": "test"}, READ_WRITE)
+    r = await runtime.execute("mb_bulk_delete_users", {"uids": [1], "reason": "test"}, READ_WRITE)
     assert r["ok"] is False and r["error"]["code"] == "scope_denied"
     assert fake.calls == []
 
@@ -167,10 +175,10 @@ async def test_token_does_not_apply_to_changed_params(runtime, fake):
 
 @pytest.mark.parametrize("reason", [None, "", "no"])
 async def test_reason_is_required_on_gated_calls(runtime, reason):
-    args = {"uid": 1}
+    args = {"uids": [1]}
     if reason is not None:
         args["reason"] = reason
-    r = await runtime.execute("mb_delete_user", args, ALL_SCOPE_SET)
+    r = await runtime.execute("mb_bulk_delete_users", args, ALL_SCOPE_SET)
     assert r["error"]["code"] == "validation" and "reason" in r["error"]["message"]
 
 
@@ -219,6 +227,32 @@ async def test_soft_delete_reads_back_the_state(runtime, fake):
     assert r["ok"]
     assert r["state_after"][0]["status"] == "deleted" and r["state_after"][0]["deletedtable"] == 1
     assert fake.posted("/json/users/deluserflex") == [{"uid": "7"}]
+
+
+async def test_soft_delete_user_needs_dry_run_and_token(runtime, fake):
+    direct = await runtime.execute("mb_delete_user", {"uid": 7, "reason": "unit test", "dry_run": False}, ALL_SCOPE_SET)
+    assert direct["error"]["code"] == "approval_required"
+    dry = await runtime.execute("mb_delete_user", gated({"uid": 7}), ALL_SCOPE_SET)
+    assert dry["dry_run"] is True and dry["data"]["summary"]["count"] == 1
+    assert any("Soft delete" in w for w in dry["data"]["warnings"])
+    assert fake.posted("/json/users/deluserflex") == []
+
+
+async def test_bulk_soft_delete_still_needs_dry_run_and_token(runtime, fake):
+    r = await _run_gated(runtime, "mb_bulk_delete_users", {"uids": [7, 8]})
+    assert r["ok"] and fake.posted("/json/users/deleteusersmulti") == [{"set_users_list": "7,8"}]
+    direct = await runtime.execute("mb_bulk_delete_users", {"uids": [7, 8], "reason": "unit test", "dry_run": False},
+                                   ALL_SCOPE_SET)
+    assert direct["error"]["code"] == "approval_required"
+
+
+async def test_lane_and_neighborhood_dry_runs_run_the_dependency_checks(runtime, fake):
+    fake.responses["/extjs/options/checkdellane"] = MikbillError("upstream_error", "can't delete lane with houses")
+    r = await runtime.execute("mb_delete_lane", gated({"laneid": 41}), ALL_SCOPE_SET)
+    assert r["data"]["summary"]["check"]["ok"] is False
+    assert fake.posted("/json/options/dellaneflex") == []
+    r = await runtime.execute("mb_delete_neighborhood", gated({"neighborhoodid": 20}), ALL_SCOPE_SET)
+    assert r["data"]["summary"]["check"] == {"uri": "/json/options/checkdeleteneighborhood", "ok": True}
 
 
 async def test_delete_house_sends_houseid_never_delete_list(runtime, fake):
