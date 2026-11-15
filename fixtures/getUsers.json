@@ -9,7 +9,7 @@
     "encoding": "application/x-www-form-urlencoded",
     "method": "POST",
     "fields": [
-      {"name": "uid", "type": "integer", "required": false, "example": 1, "note": "Filter by subscriber uid. README documents this field."}
+      {"name": "uid", "type": "integer", "required": false, "example": 1, "note": "Filter by subscriber uid. README documents this field. INCOMPLETE: the UI's search tab has many more filters; see fixtures/search_and_online_verified.json."}
     ],
     "paging": "none sent by the UI (proxy pageParam, startParam, limitParam all disabled)",
     "unfiltered_call": "not tested; the README calls it heavy"

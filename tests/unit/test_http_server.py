@@ -90,14 +90,14 @@ def test_read_only_token_sees_only_read_tools(server_url):
     r = rpc(server_url, TOKEN_RO, "tools/list")
     assert r.status_code == 200, r.text
     tools = parse(r)["result"]["tools"]
-    assert len(tools) == 25
+    assert len(tools) == 26
     assert all(not t["name"].startswith(("mb_create", "mb_delete", "mb_bulk")) for t in tools)
 
 
 def test_finance_token_sees_read_and_finance_tools(server_url):
     tools = parse(rpc(server_url, TOKEN_FIN, "tools/list"))["result"]["tools"]
     names = {t["name"] for t in tools}
-    assert len(tools) == 25 + 13
+    assert len(tools) == 26 + 13
     assert "mb_create_payment" in names and "mb_kick_user" not in names  # write is not in this token's scopes
 
 

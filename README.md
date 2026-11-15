@@ -1,6 +1,6 @@
 # mb-mcp
 
-MCP server for the Mikbill admin API. 94 tools in five scopes, including tickets and user restore, with dry-run and approval for everything that changes billing, account state, privileges, or deletes data. The design is in [SPEC.md](SPEC.md); per-endpoint evidence from the public demo is in [fixtures/](fixtures/).
+MCP server for the Mikbill admin API. 95 tools in five scopes, including tickets and user restore, with dry-run and approval for everything that changes billing, account state, privileges, or deletes data. The design is in [SPEC.md](SPEC.md); per-endpoint evidence from the public demo is in [fixtures/](fixtures/).
 
 ## Install and test
 
@@ -240,6 +240,6 @@ Set `MB_SMOKE_IMAGE=<name>` to test an image you already built. CI runs the unit
 
 ## Status
 
-- Implemented: client, error mapping, gating, redaction, audit, runtime, stdio and HTTP servers, Docker image. 187 unit tests pass, including an in-memory MCP session and a real HTTP round trip. 21 Docker smoke tests pass.
+- Implemented: client, error mapping, gating, redaction, audit, runtime, stdio and HTTP servers, Docker image. 230 unit tests pass, including an in-memory MCP session and a real HTTP round trip. 21 Docker smoke tests pass.
 - The live contract suite (`tests/contract`) passes against the public Mikbill demo. All 10 tests passed on the last run, including the tests for ticket lookups, user history, devices and restore. Some paths are only partly covered: `mb_use_voucher` is tested with a wrong code only, and `mb_set_personal_service` only on a service without a portal.
 - Open items are listed in SPEC.md ("Blocked and denied", "Discovered endpoints").

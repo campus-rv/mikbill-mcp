@@ -186,6 +186,65 @@ async def test_read_tools(demo):
     assert (await demo.ok("mb_get_system_options"))["data"]
 
 
+async def test_user_search_filters_and_online_users(demo):
+    """Read-only. The filters are the admin UI's search tab (fixtures/search_and_online_verified.json)."""
+    await demo.err("mb_search_users", "validation")  # an empty search would return every subscriber
+
+    normal = await demo.ok("mb_search_users", states=["normal"], limit=200)
+    assert normal["data"] and all(r["status"] == "normal" for r in normal["data"])
+    assert normal["totalCount"] >= len(normal["data"])
+    sample = next(r for r in normal["data"] if r["gid"] not in ("", "0") and r["local_ip"] and r["user"])
+    uid = int(sample["useruid"])
+
+    def uids(result):
+        return {int(r["useruid"]) for r in result["data"]}
+
+    assert uids(await demo.ok("mb_search_users", uid=uid)) == {uid}
+    assert uid in uids(await demo.ok("mb_search_users", user=sample["user"]))
+    assert uid in uids(await demo.ok("mb_search_users", local_ip=sample["local_ip"]))
+    assert uid in uids(await demo.ok("mb_search_users", local_ip=sample["local_mac"]))
+    by_tariff = await demo.ok("mb_search_users", gid=int(sample["gid"]), limit=1000)
+    assert uid in uids(by_tariff) and all(r["gid"] == sample["gid"] for r in by_tariff["data"])
+    combined = await demo.ok("mb_search_users", gid=int(sample["gid"]), user=sample["user"], match="all")
+    assert uid in uids(combined)
+    either = await demo.ok("mb_search_users", gid=int(sample["gid"]), user="zzz-no-such-login", match="any")
+    assert uid in uids(either)  # any: the tariff matches even though the login does not
+    none = await demo.ok("mb_search_users", gid=int(sample["gid"]), user="zzz-no-such-login", match="all")
+    assert uid not in uids(none)
+    if sample["swid"] not in ("", "0"):
+        assert uid in uids(await demo.ok("mb_search_users", swid=int(sample["swid"]), limit=1000))
+    if sample["address"]:
+        street = sample["address"].split(",")[-1].strip().split(" ")[0]
+        assert uid in uids(await demo.ok("mb_search_users", address=street, limit=1000))
+
+    # states: each state returns only that state, and the default (no states) includes deleted subscribers
+    for state, status in (("frozen", "frozen"), ("disabled", "otkluchen"), ("deleted", "deleted")):
+        found = await demo.ok("mb_search_users", states=[state], limit=50)
+        assert all(r["status"] == status for r in found["data"]), state
+    both = await demo.ok("mb_search_users", states=["normal", "frozen"], limit=1000)
+    assert {r["status"] for r in both["data"]} <= {"normal", "frozen"}
+    off = await demo.ok("mb_search_users", internet="off", limit=1000)
+    on = await demo.ok("mb_search_users", internet="on", limit=1000)
+    assert not (uids(off) & uids(on))
+
+    # the row limit
+    capped = await demo.ok("mb_search_users", states=["deleted"], limit=3)
+    assert len(capped["data"]) == 3 and capped["truncated"] is True and capped["totalCount"] > 3
+
+    # online users: Mikbill ignores filters for inetonlinefl, so the MCP filters the rows
+    online = await demo.ok("mb_list_online_users", limit=1000)
+    assert isinstance(online["data"], list) and online["totalCount"] == len(online["data"])
+    if online["data"]:
+        row = online["data"][0]
+        assert {"useruid", "user", "ip", "fstart_time", "gid"} <= set(row)
+        one = await demo.ok("mb_list_online_users", useruid=int(row["useruid"]))
+        assert [int(r["useruid"]) for r in one["data"]] == [int(row["useruid"])]
+        same_tariff = await demo.ok("mb_list_online_users", gid=int(row["gid"]))
+        assert same_tariff["data"] and all(r["gid"] == row["gid"] for r in same_tariff["data"])
+    nobody = await demo.ok("mb_list_online_users", useruid=999999999)
+    assert nobody["data"] == []
+
+
 async def test_scope_and_dry_run_guards_are_enforced_live(demo):
     # mb_bulk_delete_users is gated (account_state). None of these calls reaches Mikbill.
     r = await demo.rt.execute("mb_bulk_delete_users", {"uids": [1], "reason": REASON}, frozenset({"read", "write"}),

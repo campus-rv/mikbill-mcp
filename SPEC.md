@@ -18,13 +18,13 @@ A tool is registered only when its scope is granted. Gated tools always go throu
 
 | Scope | Default | Gated | Tools | Contents |
 |---|---|---|---|---|
-| `read` | on | no | 25 | Lookups, histories, dictionaries, system options; tickets, ticket notes and logs; ticket category, priority and performer lookups |
+| `read` | on | no | 26 | User search with the admin UI's filters; online users; lookups, histories, dictionaries, system options; tickets, ticket notes and logs; ticket category, priority and performer lookups |
 | `write` | on | no | 9 | Create and edit users; add user devices; sticky notes; kick user; create and update tickets, ticket notes, ticket status |
 | `account_state` | off | yes | 15 | Freeze; bulk enable, disable, unfreeze, enable internet; disconnect; soft deletes (single, bulk, disconnected); restore a deleted user; full delete; sticky note, ticket, ticket note and user device deletes |
 | `finance` | off | yes | 13 | Payments (single, bulk); tariff change; flex tariff (reactivate); packet add, edit, delete; personal service set and unset; credit remove (single, bulk); credit issue (bulk); voucher use |
 | `admin` | off | yes | 32 | User groups; address objects (settlements, neighborhoods, lanes, houses); infrastructure objects (sectors, switch types, switches, device types, IP pools, real IPs, NAS). Every create, edit and delete |
 
-Total: 94 tools. Blocked and denied tools are registered (see Blocked and denied).
+Total: 95 tools. Blocked and denied tools are registered (see Blocked and denied).
 
 **Delete rule:** every delete is gated, regardless of entity type. That includes the single-user soft delete `mb_delete_user`, which was briefly a plain `write` tool and was moved back to `account_state`.
 
@@ -37,13 +37,14 @@ Total: 94 tools. Blocked and denied tools are registered (see Blocked and denied
 
 ## Tool list
 
-### read (25)
+### read (26)
 
 | Tool | Upstream | URI |
 |---|---|---|
 | `mb_check_session` | checkLoggedIn | `/json/users/getcountfl` |
 | `mb_count_users` | getCountUsers | `/json/users/getcountfl` |
 | `mb_search_users` | getUsers | `/json/users/searchflex` |
+| `mb_list_online_users` | (discovered) | `/json/users/inetonlinefl` |
 | `mb_get_user` | getUser | `/json/users/getuserdatambp` |
 | `mb_get_user_payment_history` | getUsersHistoryPayments | `/json/users/statpaymfl` |
 | `mb_get_user_short_history` | getUserShortHistory | `/extjs/users/usershorthistory` |
@@ -158,6 +159,30 @@ User groups, address objects (settlements, neighborhoods, lanes, houses) and inf
 | `mb_add_nas` | none | `/json/options/nasaddflex` | nasname, nasip, secret, shortname |
 | `mb_delete_nas` | none | `/json/options/nasserverdelflex` | nasid |
 
+## User search
+
+`mb_search_users` mirrors the search tab of the admin UI (`/json/users/searchflex`). It takes at least one of these filters; everything is verified on the demo (fixtures/search_and_online_verified.json).
+
+| Argument | Meaning |
+|---|---|
+| `uid` (integer) | Exact subscriber uid. Mikbill ignores every other filter when `uid` is set, so the tool refuses it together with other filters. Only whole numbers are accepted: Mikbill reads `"02_122"` as 2. Contract numbers cannot be searched. |
+| `user`, `address`, `phone`, `local_ip`, `sticky_note`, `app`, `switchport`, `pon_central_closure_txt`, `pon_connection_box_txt` (text) | Substring match. `user` covers login, name, note and company; `phone` covers phone and e-mail; `local_ip` covers IP, MAC and device serial; `address` matches street and house text, not the city name. |
+| `settlementid`, `neighborhoodid`, `laneid`, `houseid`, `gid`, `swid`, `sectorid` (integer) | Place, tariff, switch and sector ids from the list tools. |
+| `dogovor` (0 to 3) | Contract state: no data, active, suspended, closed. |
+| `states` (array) | Any of `normal`, `disabled`, `frozen`, `deleted`. Omitted means every state, **deleted subscribers included** (645 of 905 on the demo). |
+| `user_labels` (array of ids) | Label ids. |
+| `internet` | `on` or `off`. Omitted means both. |
+| `match` | `all` (default, every filter must match) or `any`. `any` is refused together with `states` or `internet`: with `op=0` Mikbill ORs those two selectors into the result (gid 38 plus state normal returned 61 rows, the union) instead of narrowing it. |
+| `limit` | Rows returned, default 100, maximum 1000. |
+
+Mikbill does not page the result and returns every subscriber for an empty search, so an empty search is refused and the rows are capped by `limit` (`totalCount` and `truncated` say what was left out). Rows are full subscriber records (personal data).
+
+`housingid` (a UI filter) is not exposed: the demo has no housings, so its values could not be verified.
+
+## Online users
+
+`mb_list_online_users` (`/json/users/inetonlinefl`, read) lists subscribers with an internet session right now: login, IP, session start and duration, traffic counters, tariff, switch and address. Mikbill takes no parameters and ignores filters, so the optional `useruid`, `user`, `gid`, `sectorid`, `swid` and `settlementid` are applied to the returned rows, and `limit` (default 200) caps them.
+
 ## Tickets
 
 Nine tools cover the ticket endpoints: reads in `read`, create, update, notes and status in `write`, deletes gated in `account_state` (the same place as the sticky note delete). Evidence is in `fixtures/tickets_verified.json`, captured on the demo with MCPTEST tickets that were deleted afterwards.
@@ -263,7 +288,8 @@ Previously blocked, now resolved:
   {"ok": true, "status": 200, "data": {...}}
   {"ok": false, "error": {"code": "upstream_error|auth_failed|timeout|validation|scope_denied|approval_required|conflict|precondition_failed|denied_by_settings", "message": "..."}}
   ```
-- `mb_search_users` and `mb_get_user_payment_history` require at least one filter (`uid`, or `from_date`/`to_date`).
+- `mb_get_user_payment_history` requires at least one filter (`uid`, or `from_date`/`to_date`). `mb_search_users` requires at least one search filter (see User search).
+- Tools that return many rows take `limit` (`mb_search_users` default 100, `mb_list_online_users` default 200, maximum 1000). The result has `totalCount` (rows that matched, before the limit) and `truncated`.
 - Tool descriptions are in English. Mikbill field names keep their original spelling.
 
 ## Redaction and logging
@@ -345,7 +371,7 @@ mikbill-mcp/
 
 ## Verification
 
-1. **Unit tests** (`pytest`, `respx`): login and MD5 hashing; one re-login on failure; `success: false` mapping; each error code in the mapping table, using recorded responses from the fixtures; scope registration (counts per scope: 25, 9, 15, 13, 32); dry-run makes no upstream POST; approval token single use and bound to params; bulk dry-run lists every uid; missing `reason` rejected; delete tools use the parameter listed in this spec; `mb_delete_house` never sends `delete_list`; bearer and Origin checks; redaction.
+1. **Unit tests** (`pytest`, `respx`): login and MD5 hashing; one re-login on failure; `success: false` mapping; each error code in the mapping table, using recorded responses from the fixtures; scope registration (counts per scope: 26, 9, 15, 13, 32); dry-run makes no upstream POST; approval token single use and bound to params; bulk dry-run lists every uid; missing `reason` rejected; delete tools use the parameter listed in this spec; `mb_delete_house` never sends `delete_list`; bearer and Origin checks; redaction.
 2. **Contract tests** (opt-in; demo or own test instance only, MCPTEST records only): the verified sequence through the MCP. Soft delete leaves state 4. Blocked tools return their mapped codes.
 3. **MCP inspector:** `npx @modelcontextprotocol/inspector python -m mb_mcp` lists tools per scope.
 4. **Client config check:** add to Claude Code or Claude Desktop with env vars; search a test user by `uid`.

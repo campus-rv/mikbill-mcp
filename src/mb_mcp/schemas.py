@@ -26,10 +26,44 @@ class ToolSchema:
     enums: dict[str, tuple[Any, ...]] = field(default_factory=dict)  # allowed values per argument
     row_filters: tuple[str, ...] = ()   # optional arguments applied to the returned rows, never sent to Mikbill
     no_success_key: bool = False        # the response has `data` but no `success` field
+    integers: tuple[str, ...] = ()      # arguments that must be whole numbers (a string of digits is accepted)
+    help: dict[str, str] = field(default_factory=dict)   # per-argument descriptions for the tool definition
+    user_search: bool = False           # the Mikbill user search form: adds states, user_labels, internet and match
+    row_limit: int | None = None        # default of the `limit` argument that caps returned rows; None: no such argument
 
     @property
     def fields(self) -> tuple[str, ...]:
         return self.required + self.optional
+
+
+# The user search form (searchflex). Values verified on the demo (fixtures/search_and_online_verified.json).
+SEARCH_STATES = {"normal": "search_normal_state", "disabled": "search_otkluchen_state",
+                 "frozen": "search_frozen_state", "deleted": "search_deleted_state"}
+SEARCH_INTERNET = {"on": 1, "off": 2}          # search_internet: 0 (omitted) is all subscribers
+SEARCH_MATCH = {"all": "1", "any": "0"}        # op: 1 = every filter must match, 0 = any filter
+SEARCH_CONTRACT_STATES = (0, 1, 2, 3)          # dogovor: no data, active, suspended, closed
+MAX_ROWS = 1000
+
+SEARCH_HELP = {
+    "uid": "Exact subscriber uid. Mikbill ignores every other filter when uid is given, so it cannot be combined.",
+    "user": "Text in the login, name, note or company name.",
+    "address": "Text in the address, for example a street name.",
+    "phone": "Text in a phone number or e-mail address.",
+    "local_ip": "Text in the IP address, MAC address or device serial.",
+    "sticky_note": "Text in the subscriber's sticky notes.",
+    "app": "Apartment.",
+    "settlementid": "Settlement id (see mb_list_settlements).",
+    "neighborhoodid": "Neighborhood id (see mb_list_neighborhoods).",
+    "laneid": "Lane id (see mb_list_lanes).",
+    "houseid": "House id (see mb_list_houses).",
+    "gid": "Tariff (packet) id (see mb_list_packets).",
+    "swid": "Switch id (see mb_list_switches).",
+    "sectorid": "Sector id (see mb_list_sectors).",
+    "switchport": "Switch port.",
+    "dogovor": "Contract state: 0 no data, 1 active, 2 suspended, 3 closed.",
+    "pon_central_closure_txt": "Text in the PON central closure.",
+    "pon_connection_box_txt": "Text in the PON connection box.",
+}
 
 
 def _S(required: tuple[str, ...] = (), optional: tuple[str, ...] = (), **kw: Any) -> ToolSchema:
@@ -43,7 +77,12 @@ SCHEMAS: dict[str, ToolSchema] = {
     # ---- read ----
     "mb_check_session": _S(),
     "mb_count_users": _S(),
-    "mb_search_users": _S(("uid",)),
+    # The same filters as the admin UI's search tab. At least one filter is required: an empty search returns every
+    # subscriber (905 on the demo, deleted ones included), and Mikbill does not page the result.
+    "mb_search_users": _S(
+        (), tuple(SEARCH_HELP),
+        integers=("uid", "settlementid", "neighborhoodid", "laneid", "houseid", "gid", "swid", "sectorid", "dogovor"),
+        enums={"dogovor": SEARCH_CONTRACT_STATES}, help=SEARCH_HELP, user_search=True, row_limit=100),
     "mb_get_user": _S(("uid",)),
     "mb_get_user_payment_history": _S(("uid",), ("from_date", "to_date")),
     "mb_get_user_short_history": _S(("uid",)),
@@ -60,6 +99,14 @@ SCHEMAS: dict[str, ToolSchema] = {
     "mb_list_switch_types": _S(),
     "mb_list_packets": _S((), ("page", "start", "limit")),
     "mb_list_user_groups": _S(),
+    # Mikbill ignores every parameter for inetonlinefl (verified), so the filters are applied to the rows.
+    "mb_list_online_users": _S(
+        (), ("useruid", "user", "gid", "sectorid", "swid", "settlementid"),
+        row_filters=("useruid", "user", "gid", "sectorid", "swid", "settlementid"),
+        integers=("useruid", "gid", "sectorid", "swid", "settlementid"), row_limit=200,
+        help={"useruid": "Only this subscriber uid.", "user": "Only this exact login.", "gid": "Only this tariff id.",
+              "sectorid": "Only this sector id.", "swid": "Only this switch id.",
+              "settlementid": "Only this settlement id."}),
     "mb_get_system_options": _S(),
     # ---- write ----
     "mb_create_user": _S(

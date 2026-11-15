@@ -131,7 +131,7 @@ def test_runs_as_a_non_root_user(image):
 
 def test_lists_all_endpoints_offline(image):
     out = docker("run", "--rm", "--network", "none", image, "--list-endpoints").stdout
-    assert "94 tools." in out and "mb_create_payment" in out
+    assert "95 tools." in out and "mb_create_payment" in out
 
 
 def test_missing_configuration_exits_2_with_a_clear_message(image):
@@ -222,7 +222,7 @@ def test_http_rejects_an_unknown_host_header(http_server):
 def test_http_tools_list_follows_the_token_scopes(http_server):
     ro = parse(rpc(http_server, TOKEN_RO, "tools/list"))["result"]["tools"]
     fin = parse(rpc(http_server, TOKEN_FIN, "tools/list"))["result"]["tools"]
-    assert len(ro) == 25 and len(fin) == 25 + 13
+    assert len(ro) == 26 and len(fin) == 26 + 13
     assert "mb_create_payment" in {t["name"] for t in fin} and "mb_create_payment" not in {t["name"] for t in ro}
 
 
@@ -287,7 +287,7 @@ def test_bearer_token_env_authenticates_with_the_server_scopes(image, upstream):
         assert rpc(url, None, "tools/list").status_code == 401
         assert rpc(url, "wrong-token-wrong-token", "tools/list").status_code == 401
         tools = parse(rpc(url, BEARER, "tools/list"))["result"]["tools"]
-        assert len(tools) == 25 + 9 + 13  # read, write and finance, as set in MB_SCOPES
+        assert len(tools) == 26 + 9 + 13  # read, write and finance, as set in MB_SCOPES
         call = parse(rpc(url, BEARER, "tools/call", {"name": "mb_list_ticket_priorities", "arguments": {}}))["result"]
         assert call["isError"] is False
         logs = docker("logs", cid, check=False)
@@ -379,7 +379,7 @@ def test_stdio_initialize_and_list_tools(image, upstream):
             proc.kill()
     assert set(replies) == {1, 2, 3}, replies
     assert replies[1]["result"]["serverInfo"]["name"]
-    assert len(replies[2]["result"]["tools"]) == 25 + 9  # default scopes: read and write
+    assert len(replies[2]["result"]["tools"]) == 26 + 9  # default scopes: read and write
     call = replies[3]["result"]
     assert call["isError"] is False and json.loads(call["content"][0]["text"])["data"] == PRIORITIES
     assert proc.returncode == 0  # closing stdin is a clean shutdown

@@ -6,7 +6,7 @@
     "writes": "Executed on the demo with the user's explicit approval (2026-11-15). Test records are named MCPTEST_* and most were cleaned up. Records that could not be removed are listed under cleanup_leftovers."
   },
   "captured": [
-    "mb_check_session", "mb_count_users", "mb_search_users", "mb_get_user", "mb_get_user_payment_history",
+    "mb_check_session", "mb_count_users", "mb_search_users (all UI filters: see search_and_online_verified.json)", "mb_list_online_users", "mb_get_user", "mb_get_user_payment_history",
     "mb_get_user_short_history", "mb_get_user_canvas_stat", "mb_list_dev_types", "mb_list_settlements",
     "mb_list_neighborhoods", "mb_list_lanes", "mb_list_houses", "mb_list_sectors", "mb_list_switches",
     "mb_list_switch_types", "mb_list_packets", "mb_list_user_groups", "mb_get_system_options"

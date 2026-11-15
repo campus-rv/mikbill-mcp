@@ -14,7 +14,7 @@ from .endpoints import ALL, Endpoint
 from .errors import MikbillError
 from .gating import ApprovalStore
 from .redaction import redact
-from .schemas import SCALAR_TYPES, SCHEMAS, ToolSchema
+from .schemas import (MAX_ROWS, SCALAR_TYPES, SCHEMAS, SEARCH_INTERNET, SEARCH_MATCH, SEARCH_STATES, ToolSchema)
 
 USER_URI = "/json/users/getuserdatambp"
 USER_STATE_KEYS = ("useruid", "user", "state", "status", "deletedtable")
@@ -108,9 +108,26 @@ class Runtime:
     def describe(self, ep: Endpoint) -> dict[str, Any]:
         """MCP tool definition: name, description, inputSchema."""
         schema = SCHEMAS[ep.tool]
-        props: dict[str, Any] = {f: {"type": SCALAR_TYPES} for f in schema.fields}
+        props: dict[str, Any] = {f: {"type": "integer" if f in schema.integers else SCALAR_TYPES} for f in schema.fields}
         for key, options in schema.enums.items():
             props[key] = {"type": "string" if isinstance(options[0], str) else "integer", "enum": list(options)}
+        for key, text in schema.help.items():
+            if key in props:
+                props[key]["description"] = text
+        if schema.user_search:
+            props["states"] = {"type": "array", "items": {"type": "string", "enum": list(SEARCH_STATES)},
+                               "minItems": 1, "uniqueItems": True,
+                               "description": "Only subscribers in these states. Omit for all states, deleted included."}
+            props["user_labels"] = {"type": "array", "items": {"type": "integer"}, "minItems": 1, "uniqueItems": True,
+                                    "description": "Only subscribers with these label ids."}
+            props["internet"] = {"type": "string", "enum": list(SEARCH_INTERNET),
+                                 "description": "Only subscribers whose internet is on or off. Omit for both."}
+            props["match"] = {"type": "string", "enum": list(SEARCH_MATCH), "default": "all",
+                              "description": "all: every filter must match (default). any: at least one filter "
+                                             "must match; not allowed together with states or internet."}
+        if schema.row_limit:
+            props["limit"] = {"type": "integer", "minimum": 1, "maximum": MAX_ROWS, "default": schema.row_limit,
+                              "description": "Most rows to return. The response says if more matched."}
         required = list(schema.required)
         if schema.ticket_ids:
             props["ticket_ids"] = {"type": "array", "items": {"type": "integer"}, "minItems": 1,
@@ -189,7 +206,8 @@ class Runtime:
 
     def _validate(self, schema: ToolSchema, arguments: dict[str, Any]) -> dict[str, Any]:
         id_lists = ({"uids"} if schema.uids else set()) | ({"ticket_ids"} if schema.ticket_ids else set())
-        allowed = set(schema.fields) | id_lists
+        search_args = {"states", "user_labels", "internet", "match"} if schema.user_search else set()
+        allowed = set(schema.fields) | id_lists | search_args | ({"limit"} if schema.row_limit else set())
         unknown = set(arguments) - allowed
         if unknown:
             raise MikbillError("validation", f"unknown parameters: {', '.join(sorted(unknown))}")
@@ -201,6 +219,11 @@ class Runtime:
         for key, value in arguments.items():
             if key in id_lists:
                 out[key] = self._validate_ids(key, value)
+            elif key in ("states", "user_labels"):
+                out[key] = value  # checked in _validate_search
+            elif key == "limit" or key in schema.integers:
+                out[key] = _whole_number(key, value, minimum=1 if key == "limit" else None,
+                                         maximum=MAX_ROWS if key == "limit" else None)
             elif isinstance(value, (str, int, float, bool)):
                 out[key] = value
             else:
@@ -208,7 +231,39 @@ class Runtime:
         for key, options in schema.enums.items():
             if key in out and (isinstance(out[key], bool) or out[key] not in options):
                 raise MikbillError("validation", f"{key} must be one of: {', '.join(str(o) for o in options)}")
+        if schema.user_search:
+            self._validate_search(schema, out)
         return out
+
+    @staticmethod
+    def _validate_search(schema: ToolSchema, out: dict[str, Any]) -> None:
+        for key in [k for k, v in out.items() if isinstance(v, str) and not v.strip()]:
+            del out[key]  # an empty text field is "not set", as in the UI
+        if "states" in out:
+            states = out["states"]
+            if (not isinstance(states, list) or not states or len(set(map(str, states))) != len(states)
+                    or any(st not in SEARCH_STATES for st in states)):
+                raise MikbillError("validation", f"states must be a non-empty array of: {', '.join(SEARCH_STATES)}")
+        if "user_labels" in out:
+            labels = out["user_labels"]
+            if (not isinstance(labels, list) or not labels or len(set(map(str, labels))) != len(labels)
+                    or not all(isinstance(x, int) and not isinstance(x, bool) for x in labels)):
+                raise MikbillError("validation", "user_labels must be a non-empty array of integer label ids")
+        for key, options in (("internet", SEARCH_INTERNET), ("match", SEARCH_MATCH)):
+            if key in out and out[key] not in options:
+                raise MikbillError("validation", f"{key} must be one of: {', '.join(options)}")
+        filters = [k for k in out if k not in ("match", "limit")]
+        if not filters:
+            raise MikbillError("validation", "at least one search filter is required (an empty search returns every "
+                                             "subscriber)")
+        if out.get("match") == "any" and ("states" in out or "internet" in out):
+            # verified: with op=0 Mikbill ORs the status and internet selectors with the other filters (gid 38 plus
+            # state normal returned the union, 61 rows), which is never what "states" is meant to do
+            raise MikbillError("validation", "match any cannot be combined with states or internet: Mikbill would "
+                                             "add them to the result instead of narrowing it. Use match all.")
+        if "uid" in out and len(filters) > 1:
+            raise MikbillError("validation", "uid cannot be combined with other filters: Mikbill ignores them when uid "
+                                             "is given")
 
     def _validate_ids(self, name: str, value: Any) -> list[int]:
         if not isinstance(value, list) or not value or not all(isinstance(u, int) and not isinstance(u, bool) for u in value):
@@ -225,6 +280,8 @@ class Runtime:
     def build_params(schema: ToolSchema, args: dict[str, Any]) -> dict[str, str]:
         """Form parameters sent to Mikbill: defaults, renames, fixed values, uids, string encoding."""
         merged: dict[str, Any] = {**schema.defaults, **args}
+        if schema.user_search:
+            return Runtime._search_params(merged)
         uids = merged.pop("uids", None)
         ticket_ids = merged.pop("ticket_ids", None)
         out: dict[str, Any] = {schema.rename.get(k, k): v for k, v in merged.items()}
@@ -237,6 +294,24 @@ class Runtime:
             else:  # "enumerate": the UI sends ticketid0, ticketid1, ...
                 for i, t in enumerate(ticket_ids):
                     out[f"ticketid{i}"] = t
+        return {k: _form_value(v) for k, v in out.items()}
+
+    @staticmethod
+    def _search_params(args: dict[str, Any]) -> dict[str, str]:
+        """The searchflex form the admin UI's search tab sends. Empty filters are left out, as the UI does."""
+        out: dict[str, Any] = {k: v for k, v in args.items()
+                               if k not in ("states", "user_labels", "internet", "match", "limit")}
+        states = args.get("states") or []
+        out["search_all_states"] = 0 if states else 1
+        for flag in SEARCH_STATES.values():
+            out[flag] = 0
+        for state in states:
+            out[SEARCH_STATES[state]] = 1
+        out["search_internet"] = SEARCH_INTERNET.get(args.get("internet"), 0)
+        out["op"] = SEARCH_MATCH[args.get("match", "all")]
+        out["search_display_all"] = 1
+        if args.get("user_labels"):
+            out["user_labels"] = json.dumps(args["user_labels"])
         return {k: _form_value(v) for k, v in out.items()}
 
     async def _params(self, ep: Endpoint, schema: ToolSchema, args: dict[str, Any]) -> dict[str, str]:
@@ -392,7 +467,8 @@ class Runtime:
         if ep.tool == "mb_restore_user":
             return await self._restore(args)
         filters = {k: args[k] for k in schema.row_filters if k in args}
-        params = await self._params(ep, schema, {k: v for k, v in args.items() if k not in filters})
+        limit = args.get("limit", schema.row_limit)
+        params = await self._params(ep, schema, {k: v for k, v in args.items() if k not in filters and k != "limit"})
         env = await self.client.call(ep.uri, params, allow_empty=schema.allow_empty,
                                      no_success_key=schema.no_success_key)
         if filters:  # Mikbill ignores filter parameters for this endpoint, so filter the rows here
@@ -400,6 +476,11 @@ class Runtime:
                     and all(str(r.get(k)) == str(v) for k, v in filters.items())]
             env = {**env, "data": rows}
         extra: dict[str, Any] = {}
+        if limit and isinstance(env.get("data"), list):
+            rows = env["data"]
+            # totalCount is the number of rows that matched, before the limit (not Mikbill's unfiltered count)
+            env = {**env, "data": rows[:limit], "totalCount": len(rows)}
+            extra["truncated"] = len(rows) > limit
         if ep.tool in READ_BACK_TOOLS:
             uids = args["uids"] if schema.uids else [args["uid"]]
             extra["state_after"] = await self._user_states(uids)
@@ -420,6 +501,24 @@ class Runtime:
         if "counters" in env:  # ticket list: status, priority and category counters (unfiltered)
             extras["counters"] = env["counters"]
         return _ok(redact(data), **redact(extras))
+
+
+def _whole_number(name: str, value: Any, *, minimum: int | None = None, maximum: int | None = None) -> int:
+    """An integer argument. A string of digits is accepted; anything else (1.5, true, "1,2", "12abc") is refused, since
+    Mikbill reads such values leniently and would search for something else."""
+    if isinstance(value, bool):
+        ok = False
+    elif isinstance(value, int):
+        ok, number = True, value
+    elif isinstance(value, str) and value.strip().lstrip("-").isdigit():
+        ok, number = True, int(value.strip())
+    else:
+        ok = False
+    if not ok:
+        raise MikbillError("validation", f"{name} must be a whole number")
+    if (minimum is not None and number < minimum) or (maximum is not None and number > maximum):
+        raise MikbillError("validation", f"{name} must be between {minimum} and {maximum}")
+    return number
 
 
 def _form_value(v: Any) -> str:

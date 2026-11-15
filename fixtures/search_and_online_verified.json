@@ -1,0 +1,61 @@
+{
+  "captured_at": "2026-11-15",
+  "target": "https://admin.mikbill.pro (public demo). Read-only: every call below is a read. Nothing was written. Counts are the demo's at capture time and drift.",
+  "method": "The filter names and the form the UI sends were read from the search tab (Admin.store.users.Searchflex proxy extraParams and the form fields), then each filter was replayed as a direct POST from the signed-in page and the result counted.",
+  "mb_search_users": {
+    "uri": "/json/users/searchflex",
+    "finding": "The first capture (getUsers.json) only recorded the uid filter. The UI's search tab has 20 filters plus a status selector, an internet selector and an and/or switch. All of them work as direct POSTs.",
+    "always_sent_by_the_ui": {
+      "op": "\"1\" = every filter must match (and), \"0\" = any filter (or)",
+      "search_all_states": "\"1\" when no status is selected, else \"0\"",
+      "search_normal_state": "\"1\" if selected",
+      "search_otkluchen_state": "\"1\" if selected (disabled)",
+      "search_frozen_state": "\"1\" if selected",
+      "search_deleted_state": "\"1\" if selected",
+      "search_display_all": "\"1\" (the UI's \"empty search\" box)",
+      "search_internet": "0 all, 1 internet on, 2 internet off"
+    },
+    "filters": [
+      {"name": "uid", "kind": "integer", "note": "Mikbill reads it with intval and ignores every other filter when it is set. \"02_122\" searches for uid 2, \"1,2\" for uid 1, and \"2024/02_122\" (a contract number) finds nothing, so the MCP accepts whole numbers only and refuses uid together with other filters. Label in the UI: UID/contract.", "verified": "uid 122 -> 1 row; uid 122 + user zzzz -> the same row (the other filter ignored)"},
+      {"name": "user", "kind": "text", "note": "login, name, note or company name (UI label)", "verified": "Kramarchuk -> 2 rows"},
+      {"name": "address", "kind": "text", "verified": "Воздвиженська -> 33, Воздвиженська 22 -> 10; \"Київ\" (the city) -> 0, so it matches street and house text, not the city"},
+      {"name": "phone", "kind": "text", "note": "phone or e-mail", "verified": "38 -> 1; @ -> 823 (e-mail)"},
+      {"name": "local_ip", "kind": "text", "note": "IP, MAC or device serial", "verified": "10.10.0.133 -> 1; 46:81:6c:1c:0c:fa -> 1; 10.10 -> 183 (substring)"},
+      {"name": "sticky_note", "kind": "text", "verified": "a -> 1"},
+      {"name": "app", "kind": "text", "note": "apartment", "verified": "66 -> 7"},
+      {"name": "settlementid", "kind": "id", "verified": "1 -> 188, 5 -> 126"},
+      {"name": "neighborhoodid", "kind": "id", "verified": "7 -> 126"},
+      {"name": "laneid", "kind": "id", "verified": "16 -> 64"},
+      {"name": "houseid", "kind": "id", "verified": "46 -> 42"},
+      {"name": "gid", "kind": "id", "note": "tariff", "verified": "38 -> 8"},
+      {"name": "swid", "kind": "id", "note": "switch", "verified": "7 -> 1"},
+      {"name": "sectorid", "kind": "id", "verified": "13 -> 52"},
+      {"name": "switchport", "kind": "text", "verified": "1 -> 1"},
+      {"name": "dogovor", "kind": "integer 0..3", "note": "contract state: 0 no data, 1 active, 2 suspended, 3 closed", "verified": "1 -> 493, 3 -> 162"},
+      {"name": "pon_central_closure_txt", "kind": "text", "verified": "accepted (a -> 0 on the demo)"},
+      {"name": "pon_connection_box_txt", "kind": "text", "verified": "accepted (a -> 0 on the demo)"},
+      {"name": "user_labels", "kind": "JSON array of label ids, sent as a string like \"[1]\"", "verified": "\"[1]\", \"[1,2]\" and \"1\" all -> 1 row (uid 5); how several labels combine was not distinguished"}
+    ],
+    "not_exposed": [
+      "housingid: the UI has it, but the demo has no housings and housingid=-1 or 1 returned 0 rows, so its values could not be verified.",
+      "numdogovor: not a filter; sending it is ignored and returns every subscriber."
+    ],
+    "statuses": {
+      "verified": "search_normal_state 60, otkluchen 41, frozen 159, deleted 645 (sum 905 = the unfiltered total). Selecting two returns both (normal + frozen 219).",
+      "note": "With no state selected the result includes deleted subscribers (645 of 905 on the demo)."
+    },
+    "internet": "search_internet 1 -> 902 rows, 2 -> 3 rows, 0 -> 905.",
+    "and_or": "gid 38 + swid 10: op 1 -> 1 row, op 0 -> 8 rows. CAVEAT: with op 0 Mikbill also ORs the status and internet selectors into the result: gid 38 + state normal -> 61 rows (8 + all 60 normal), gid 38 + internet on -> 902 rows. The MCP therefore refuses match any together with states or internet. With op 1 they narrow correctly (gid 38 + normal -> 7).",
+    "empty_search": "No filter returns all 905 subscribers, with or without search_display_all. There is no paging (the UI sends none), so the MCP requires a filter and caps the rows it returns (limit, default 100, max 1000).",
+    "speed": "Each query took 0.3 to 0.6 s on the demo."
+  },
+  "mb_list_online_users": {
+    "uri": "/json/users/inetonlinefl",
+    "scope": "read",
+    "request": "No parameters. The UI store (Admin.store.users.inetonlinefl) has no paging and no extra params.",
+    "response": "{success: true, totalCount: 15, data: [rows]}",
+    "row_fields": ["useruid", "packet", "sectorid", "gid", "user", "deposit", "credit", "server", "framed_ip", "fio", "fstart_time", "time_on", "in_bytes", "out_bytes", "port", "ip", "call_from", "calledstationid", "address", "settlementid", "neighborhoodid", "laneid", "houseid", "house", "app", "swid", "switchport", "switchip", "swtypename", "swichname", "switchmac", "state", "status", "shaper_in", "shaper_out", "online", "blocked", "user_installed", "days_left", "phones", "prim"],
+    "filters": "Mikbill ignores filter parameters: gid, sectorid, user, useruid and uid were each sent and every call still returned all 15 rows. The MCP therefore filters the returned rows (useruid, user, gid, sectorid, swid, settlementid) and caps them (limit, default 200).",
+    "notes": ["Values are strings except deposit, credit, in_bytes, out_bytes, days_left and online, which are numbers.", "The rows hold personal data (name, phones, address)."]
+  }
+}

@@ -7,8 +7,8 @@ from mb_mcp.schemas import SCHEMAS
 
 def test_tool_counts_per_scope():
     counts = Counter(ep.scope for ep in ALL)
-    assert counts == {"read": 25, "write": 9, "account_state": 15, "finance": 13, "admin": 32}
-    assert len(ALL) == 94
+    assert counts == {"read": 26, "write": 9, "account_state": 15, "finance": 13, "admin": 32}
+    assert len(ALL) == 95
 
 
 def test_names_and_uris_are_sane():

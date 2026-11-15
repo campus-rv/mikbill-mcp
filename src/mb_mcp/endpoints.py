@@ -43,7 +43,16 @@ READ: list[Endpoint] = [
     Endpoint("mb_check_session", "checkLoggedIn", "/json/users/getcountfl", "read"),
     Endpoint("mb_count_users", "getCountUsers", "/json/users/getcountfl", "read"),
     Endpoint("mb_search_users", "getUsers", "/json/users/searchflex", "read",
-             note="Requires at least one filter (uid). Heavy."),
+             note="Search subscribers with the filters of the admin UI's search tab: uid, text (login/name/note, "
+                  "address, phone/e-mail, IP/MAC/serial, sticky note, apartment), place (settlement, neighborhood, "
+                  "lane, house), tariff, switch, sector, port, contract state, statuses, labels and internet on/off. "
+                  "At least one filter is required. Filters combine with match all (default) or any (not with states or internet). Deleted "
+                  "subscribers are included unless states is given. Returns at most limit rows (default 100); "
+                  "totalCount is the full number."),
+    Endpoint("mb_list_online_users", None, "/json/users/inetonlinefl", "read",
+             note="Subscribers with an active internet session right now: login, IP, session start and duration, "
+                  "traffic counters, tariff, switch and address. Mikbill ignores filters for this endpoint, so the "
+                  "optional useruid, user, gid, sectorid, swid and settlementid are applied to the rows."),
     Endpoint("mb_get_user", "getUser", "/json/users/getuserdatambp", "read",
              note="Redact password, router_pass, router_wep_pass."),
     Endpoint("mb_get_user_payment_history", "getUsersHistoryPayments", "/json/users/statpaymfl", "read",
