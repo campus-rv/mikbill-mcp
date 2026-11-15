@@ -18,6 +18,9 @@ dev = [
     "pytest>=8",
     "pytest-asyncio>=0.23",
     "respx>=0.21",
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "pip-audit>=2.7",
 ]
 
 [project.scripts]
@@ -32,3 +35,21 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 markers = ["contract: live tests that write to a real Mikbill (opt-in, see tests/contract/test_demo.py)"]
 pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 130
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+# pyflakes and the pycodestyle error classes, import order, likely bugs (B) and the bandit security checks (S)
+select = ["E4", "E7", "E9", "F", "I", "B", "S"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S"]   # asserts, fixed test secrets and subprocess calls to docker are what tests are made of
+"tests/contract/**" = ["S", "E702", "E741"]   # the live suite pairs each call with its cleanup on one line
+
+[tool.mypy]
+python_version = "3.12"
+files = ["src"]
+warn_unused_ignores = true
+warn_redundant_casts = true

@@ -58,11 +58,11 @@ def test_the_old_mb_allowed_names_are_not_read():
     assert s.allowed_hosts == frozenset() and s.allowed_origins == frozenset()
 
 
-def test_http_host_and_port_default_to_localhost_8765_and_come_from_the_environment():
+def test_http_host_and_port_default_to_localhost_8000_and_come_from_the_environment():
     s = Settings.from_env(env(), **HTTP)
-    assert (s.http_host, s.http_port) == ("127.0.0.1", 8765)
-    s = Settings.from_env(env(MCP_HTTP_HOST="0.0.0.0", MCP_HTTP_PORT="8000"), **HTTP)
-    assert (s.http_host, s.http_port) == ("0.0.0.0", 8000)
+    assert (s.http_host, s.http_port) == ("127.0.0.1", 8000)
+    s = Settings.from_env(env(MCP_HTTP_HOST="0.0.0.0", MCP_HTTP_PORT="9000"), **HTTP)
+    assert (s.http_host, s.http_port) == ("0.0.0.0", 9000)
 
 
 @pytest.mark.parametrize("port", ["abc", "0", "70000", "-1"])
@@ -100,7 +100,7 @@ def test_http_only_settings_are_ignored_and_not_validated_in_stdio_mode():
         MCP_HTTP_HOST="0.0.0.0", MCP_ALLOWED_HOSTS="a.example", MCP_ALLOWED_ORIGINS="https://a.test"))
     assert s.transport == "stdio"
     assert s.http_tokens == () and s.allowed_hosts == frozenset() and s.allowed_origins == frozenset()
-    assert (s.http_host, s.http_port) == ("127.0.0.1", 8765)
+    assert (s.http_host, s.http_port) == ("127.0.0.1", 8000)
 
 
 def test_tokens_parse():

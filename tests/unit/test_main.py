@@ -26,21 +26,21 @@ def served(monkeypatch):
     return calls
 
 
-def test_http_defaults_to_localhost_8765(served):
+def test_http_defaults_to_localhost_8000(served):
     assert cli.main(["--http"]) == 0
-    assert served == [("127.0.0.1", 8765)]
+    assert served == [("127.0.0.1", 8000)]
 
 
 def test_http_takes_host_and_port_from_the_environment(served, monkeypatch):
     monkeypatch.setenv("MCP_HTTP_HOST", "0.0.0.0")
-    monkeypatch.setenv("MCP_HTTP_PORT", "8000")
+    monkeypatch.setenv("MCP_HTTP_PORT", "9000")
     assert cli.main(["--http"]) == 0
-    assert served == [("0.0.0.0", 8000)]
+    assert served == [("0.0.0.0", 9000)]
 
 
 def test_command_line_options_override_the_environment(served, monkeypatch):
     monkeypatch.setenv("MCP_HTTP_HOST", "0.0.0.0")
-    monkeypatch.setenv("MCP_HTTP_PORT", "8000")
+    monkeypatch.setenv("MCP_HTTP_PORT", "9000")
     assert cli.main(["--http", "--host", "127.0.0.1", "--port", "9100"]) == 0
     assert served == [("127.0.0.1", 9100)]
 
@@ -58,9 +58,9 @@ def test_stdio_is_the_default_transport(served):
 
 def test_mcp_transport_selects_http_without_a_flag(served, monkeypatch):
     monkeypatch.setenv("MCP_TRANSPORT", "http")
-    monkeypatch.setenv("MCP_HTTP_PORT", "8000")
+    monkeypatch.setenv("MCP_HTTP_PORT", "9000")
     assert cli.main([]) == 0
-    assert served == [("127.0.0.1", 8000)]
+    assert served == [("127.0.0.1", 9000)]
 
 
 def test_transport_option_overrides_mcp_transport(served, monkeypatch):

@@ -7,7 +7,7 @@ from mb_mcp.schemas import SCHEMAS
 
 def test_tool_counts_per_scope():
     counts = Counter(ep.scope for ep in ALL)
-    assert counts == {"read": 26, "write": 13, "account": 11, "finance": 13, "admin": 32}
+    assert counts == {"read": 25, "write": 13, "account": 11, "finance": 13, "admin": 33}
     assert len(ALL) == 95
 
 
@@ -22,9 +22,35 @@ def test_every_tool_has_a_schema_and_no_extras():
     assert {ep.tool for ep in ALL} == set(SCHEMAS)
 
 
+# The two exceptions to "gated exactly in the gated scopes": a read that holds admin-only data, and a delete in the
+# write scope that cannot be undone.
+READ_ONLY_OUTSIDE_READ = {"mb_get_system_options"}
+GATED_IN_WRITE = {"mb_delete_tickets"}
+
+
 def test_gated_exactly_for_gated_scopes():
     for ep in ALL:
-        assert ep.gated == (ep.scope in GATED_SCOPES), ep.tool
+        if ep.tool in READ_ONLY_OUTSIDE_READ:
+            assert ep.scope == "admin" and ep.read_only and not ep.gated
+        elif ep.tool in GATED_IN_WRITE:
+            assert ep.scope == "write" and ep.gated
+        else:
+            assert ep.gated == (ep.scope in GATED_SCOPES), ep.tool
+            assert not ep.read_only, ep.tool
+
+
+def test_system_options_are_not_in_the_read_scope():
+    """Server settings and paths with keys nobody enumerated: not for every read token."""
+    ep = next(e for e in ALL if e.tool == "mb_get_system_options")
+    assert ep.scope == "admin" and ep.is_read
+
+
+def test_every_tool_has_a_description_for_the_model_without_maintainer_notes():
+    for ep in ALL:
+        assert ep.desc and ep.desc[0].isupper() and ep.desc.endswith("."), ep.tool
+        for word in ("Redact", "Verified", "verified", "Upstream", "upstream", "MCPTEST", "delete_list", "wrapper",
+                     "fixture", "the demo"):
+            assert word not in ep.desc, (ep.tool, word)
 
 
 def test_no_console_execution_is_registered():
@@ -39,17 +65,19 @@ def test_pending_endpoints_are_not_registered():
     assert not any(uri in uris for uri, _ in PENDING)
 
 
-# Deletes of these four are in the ungated write scope (the user decided; the client asks before the call).
+# Deletes of these four are in the write scope. Three are ungated (the client asks before the call). Deleting
+# tickets cannot be undone and takes a list, so it is gated inside write: a reason, and a preview by default.
 WRITE_DELETES = {"mb_delete_sticky_note", "mb_delete_user_device", "mb_delete_tickets", "mb_delete_ticket_note"}
 
 
-def test_every_delete_is_gated_except_the_four_in_the_write_scope():
+def test_every_delete_is_gated_except_three_in_the_write_scope():
     for ep in ALL:
         if "delete" in ep.tool and ep.tool not in WRITE_DELETES:
             assert ep.gated, ep.tool
     by_name = {ep.tool: ep for ep in ALL}
     for name in WRITE_DELETES:
-        assert by_name[name].scope == "write" and not by_name[name].gated, name
+        assert by_name[name].scope == "write", name
+        assert by_name[name].gated == (name in GATED_IN_WRITE), name
 
 
 def test_soft_deletes_and_full_delete_are_gated_account():
@@ -85,7 +113,7 @@ def test_write_scope_is_users_devices_notes_kick_tickets_and_their_deletes():
         "mb_create_ticket", "mb_update_ticket", "mb_add_ticket_note", "mb_set_ticket_status",
         "mb_delete_sticky_note", "mb_delete_user_device", "mb_delete_tickets", "mb_delete_ticket_note",
     }
-    assert all(not ep.gated for ep in ALL if ep.scope == "write")
+    assert {ep.tool for ep in ALL if ep.scope == "write" and ep.gated} == GATED_IN_WRITE
 
 
 def test_delete_house_never_uses_delete_list():
@@ -99,9 +127,9 @@ def test_group_delete_uses_delete_list():
 
 
 def test_the_account_scope_replaced_account_state():
-    from mb_mcp.config import ALL_SCOPES
+    from mb_mcp.config import ALL_SCOPES, DATA_SCOPES
     assert "account" in ALL_SCOPES and "account_state" not in ALL_SCOPES
-    assert {ep.scope for ep in ALL} == set(ALL_SCOPES)
+    assert {ep.scope for ep in ALL} == set(ALL_SCOPES) - set(DATA_SCOPES)  # pii holds no tools
     assert {ep.tool for ep in ALL if ep.scope == "account"} == {
         "mb_freeze_user", "mb_bulk_enable_users", "mb_bulk_disable_users", "mb_bulk_unfreeze_users",
         "mb_bulk_enable_internet", "mb_disconnect_user", "mb_bulk_delete_users", "mb_delete_user",
@@ -121,8 +149,8 @@ def test_every_tool_has_annotations_and_a_title():
 def test_read_tools_are_read_only_and_everything_else_is_not():
     from mb_mcp.endpoints import tool_annotations
     for ep in ALL:
-        assert tool_annotations(ep)["read_only_hint"] is (ep.scope == "read"), ep.tool
-        if ep.scope == "read":
+        assert tool_annotations(ep)["read_only_hint"] is ep.is_read, ep.tool
+        if ep.is_read:
             assert "destructive_hint" not in tool_annotations(ep)
 
 

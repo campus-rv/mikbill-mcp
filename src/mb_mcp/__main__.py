@@ -25,7 +25,7 @@ def main(argv: list[str] | None = None) -> int:
                         help="stdio (local MCP client, the default) or http (Streamable HTTP); default: MCP_TRANSPORT")
     parser.add_argument("--http", action="store_true", help="same as --transport http")
     parser.add_argument("--host", default=None, help="HTTP bind address (default: MCP_HTTP_HOST or 127.0.0.1)")
-    parser.add_argument("--port", type=int, default=None, help="HTTP port (default: MCP_HTTP_PORT or 8765)")
+    parser.add_argument("--port", type=int, default=None, help="HTTP port (default: MCP_HTTP_PORT or 8000)")
     parser.add_argument("--list-endpoints", action="store_true", help="print the endpoint table and exit (no network)")
     args = parser.parse_args(argv)
 

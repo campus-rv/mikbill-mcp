@@ -5,7 +5,8 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 import httpx
 
@@ -48,7 +49,7 @@ class MikbillClient:
 
     async def login(self) -> None:
         """Authenticate. The password is MD5-hashed in memory, as the Mikbill protocol requires."""
-        digest = hashlib.md5(self._settings.password.encode("utf-8")).hexdigest()  # noqa: S324 (protocol)
+        digest = hashlib.md5(self._settings.password.encode("utf-8")).hexdigest()  # noqa: S324 (the protocol)
         env = await self._post(AUTH_URI, {"login": self._settings.login, "password": digest})
         if env.get("success") is not True:
             self._logged_in = False
@@ -68,20 +69,31 @@ class MikbillClient:
             await self.login()
 
     async def _post(self, uri: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
+        # `maybe_applied` separates "the request never left" (no connection, no free pool slot) from "it left, or may
+        # have, and no usable answer came back". For a write the second case has an unknown outcome, and the runtime
+        # tells the caller so instead of inviting a retry (a retried payment is a double payment).
         try:
             resp = await self._http.post(uri, data=dict(params or {}))
+        except (httpx.ConnectTimeout, httpx.PoolTimeout) as exc:
+            raise MikbillError("timeout", f"could not connect to Mikbill for {uri} in time") from exc
         except httpx.TimeoutException as exc:
-            raise MikbillError("timeout", f"request to {uri} timed out") from exc
-        except httpx.HTTPError as exc:
+            raise MikbillError("timeout", f"request to {uri} timed out", maybe_applied=True) from exc
+        except (httpx.ConnectError, httpx.UnsupportedProtocol, httpx.InvalidURL) as exc:
             raise MikbillError("upstream_error", f"request to {uri} failed: {type(exc).__name__}") from exc
+        except httpx.HTTPError as exc:
+            raise MikbillError("upstream_error", f"request to {uri} failed: {type(exc).__name__}",
+                               maybe_applied=True) from exc
         if resp.status_code != 200:
-            raise MikbillError("upstream_error", f"HTTP {resp.status_code} from {uri}", status=resp.status_code)
+            raise MikbillError("upstream_error", f"HTTP {resp.status_code} from {uri}", status=resp.status_code,
+                               maybe_applied=True)
         try:
             body = resp.json()
         except ValueError as exc:
-            raise MikbillError("upstream_error", f"non-JSON response from {uri}", status=resp.status_code) from exc
+            raise MikbillError("upstream_error", f"non-JSON response from {uri}", status=resp.status_code,
+                               maybe_applied=True) from exc
         if not isinstance(body, dict):
-            raise MikbillError("upstream_error", f"unexpected JSON type from {uri}", status=resp.status_code)
+            raise MikbillError("upstream_error", f"unexpected JSON type from {uri}", status=resp.status_code,
+                               maybe_applied=True)
         return body
 
     async def call(self, uri: str, params: Mapping[str, Any] | None = None, *, allow_empty: bool = False,

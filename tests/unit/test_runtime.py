@@ -17,7 +17,7 @@ def names(runtime, scopes):
 # ---- scopes and listing ---------------------------------------------------------------------
 
 def test_listing_respects_scopes(runtime):
-    assert len(names(runtime, READ_WRITE)) == 39
+    assert len(names(runtime, READ_WRITE)) == 38
     assert "mb_add_settlement" not in names(runtime, READ_WRITE)  # address objects are admin
     assert "mb_add_house" not in names(runtime, READ_WRITE)
     assert "mb_add_house" in names(runtime, frozenset({"read", "admin"}))
@@ -34,7 +34,7 @@ def test_listing_respects_scopes(runtime):
 def test_listing_is_limited_by_server_scopes(settings):
     from dataclasses import replace
     rt = Runtime(replace(settings, scopes=frozenset({"read"})), FakeClient())
-    assert len(rt.tools_for(ALL_SCOPE_SET)) == 26
+    assert len(rt.tools_for(ALL_SCOPE_SET)) == 25
 
 
 def test_every_tool_has_a_valid_input_schema(runtime):
@@ -174,10 +174,10 @@ async def test_bulk_tools_preview_by_default_and_execute_with_dry_run_false(runt
 
 
 @pytest.mark.parametrize("tool", [ep.tool for ep in ALL if ep.gated])
-def test_only_tools_that_take_uids_preview_by_default(runtime, tool):
+def test_only_tools_that_take_a_list_of_targets_preview_by_default(runtime, tool):
     ep = next(e for e in ALL if e.tool == tool)
     prop = runtime.describe(ep)["inputSchema"]["properties"]["dry_run"]
-    assert prop["default"] is (tool.startswith("mb_bulk_")), tool
+    assert prop["default"] is (tool.startswith("mb_bulk_") or tool == "mb_delete_tickets"), tool
 
 
 async def test_approval_tokens_no_longer_exist(runtime, fake):
@@ -306,20 +306,25 @@ async def test_failed_gated_call_returns_the_upstream_error(runtime, fake):
 
 async def test_executed_gated_calls_are_audited_with_the_reason_and_previews_are_not(settings, fake, tmp_path):
     import json as _json
+
     from mb_mcp.audit import AuditLog
     path = tmp_path / "audit.log"
     rt = Runtime(settings, fake, AuditLog(str(path)))
     await rt.execute("mb_bulk_unfreeze_users", {"uids": [1], "reason": "preview only"}, ALL_SCOPE_SET, principal="agent1")
-    assert not path.exists() or path.read_text(encoding="utf-8") == ""
+    assert path.read_text(encoding="utf-8") == ""
     await rt.execute("mb_bulk_unfreeze_users", {"uids": [1], "reason": "customer asked", "dry_run": False},
                      ALL_SCOPE_SET, principal="agent1")
     events = [_json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    # on record before the request is sent, then the outcome, linked by the same id
     assert [(e["tool"], e["outcome"], e["reason"], e["principal"]) for e in events] == [
+        ("mb_bulk_unfreeze_users", "attempt", "customer asked", "agent1"),
         ("mb_bulk_unfreeze_users", "ok", "customer asked", "agent1")]
+    assert events[0]["id"] == events[1]["id"]
 
 
 async def test_audit_records_do_not_contain_personal_data(settings, fake, tmp_path):
     from dataclasses import replace
+
     from mb_mcp.audit import AuditLog
     path = tmp_path / "audit.log"
     rt = Runtime(replace(settings), fake, AuditLog(str(path)))

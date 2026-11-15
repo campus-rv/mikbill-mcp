@@ -1,6 +1,6 @@
 # Specification: Mikbill Admin MCP Server
 
-Status: v1 design, verified against the public Mikbill demo (2026-11-15). Implementation not started. This file is the source of truth for scope. Per-endpoint evidence is in `fixtures/`, and the code table is `src/mb_mcp/endpoints.py`.
+Status: v1, implemented and verified against the public Mikbill demo (2026-11-15), and hardened after the security review of the same date (see "Server-side controls"). This file is the source of truth for scope. Per-endpoint evidence is in `fixtures/`, and the code table is `src/mb_mcp/endpoints.py`.
 
 ## Context
 
@@ -18,15 +18,18 @@ A tool is registered only when its scope is granted. Gated tools need a `reason`
 
 | Scope | Default | Gated | Tools | Contents |
 |---|---|---|---|---|
-| `read` | on | no | 26 | User search with the admin UI's filters; online users; lookups, histories, dictionaries, system options; tickets, ticket notes and logs; ticket category, priority and performer lookups |
-| `write` | on | no | 13 | Create and edit users; add and delete user devices; sticky notes (create, delete); kick user; tickets (create, update, notes, status, delete tickets and notes) |
+| `read` | on | no | 25 | User search with the admin UI's filters; online users; lookups, histories, dictionaries; tickets, ticket notes and logs; ticket category, priority and performer lookups |
+| `write` | on | no, except `mb_delete_tickets` | 13 | Create and edit users; add and delete user devices; sticky notes (create, delete); kick user; tickets (create, update, notes, status, delete tickets and notes) |
 | `account` | off | yes | 11 | Freeze; bulk enable, disable, unfreeze, enable internet; disconnect; soft deletes (single, bulk, disconnected); restore a deleted user; full delete |
 | `finance` | off | yes | 13 | Payments (single, bulk); tariff change; flex tariff (reactivate); packet add, edit, delete; personal service set and unset; credit remove (single, bulk); credit issue (bulk); voucher use |
-| `admin` | off | yes | 32 | User groups; address objects (settlements, neighborhoods, lanes, houses); infrastructure objects (sectors, switch types, switches, device types, IP pools, real IPs, NAS). Every create, edit and delete |
+| `admin` | off | yes, except the read-only `mb_get_system_options` | 33 | System options (read-only); user groups; address objects (settlements, neighborhoods, lanes, houses); infrastructure objects (sectors, switch types, switches, device types, IP pools, real IPs, NAS). Every create, edit and delete |
+| `pii` | off | no | 0 | No tools. With it, identity documents in subscriber records (passport, tax id, birth date) are returned; without it they are masked |
 
 Total: 95 tools. Blocked and denied tools are registered (see Blocked and denied).
 
-**Delete rule:** deletes of users (soft and full), packets, user groups and every admin object are gated. Deletes of sticky notes, user devices, tickets and ticket notes are plain `write` tools (no reason, no preview; the result of `mb_delete_tickets` still shows the tickets' state afterwards). The scope `account` was called `account_state` until 0.0.1.
+**Delete rule:** deletes of users (soft and full), packets, user groups and every admin object are gated. Deletes of sticky notes, user devices and ticket notes are plain `write` tools (no reason, no preview). `mb_delete_tickets` is in `write` too, but a deleted ticket cannot be restored, so it is gated there: a reason, and a preview by default that shows each ticket's state.
+
+**Field rule:** an argument that carries a change owned by another scope needs that scope and a reason. On `mb_update_user`: `gid` needs `finance`; `usersgroupid`, `password` and `blocked` need `account`. On `mb_restore_user`: `gid` needs `finance`. Without the scope the call returns `scope_denied` and is audited. The scope `account` was called `account_state` until 0.0.1.
 
 **Admin rule:** all changes to address objects (settlements, neighborhoods, lanes, houses) and infrastructure objects (sectors, switch types, switches, device types, IP pools, real IPs, NAS) need the `admin` scope and are gated: every create, edit and delete. The `write` scope is users, user devices, sticky notes, kick and tickets, with the deletes of the last three.
 
@@ -37,7 +40,7 @@ Total: 95 tools. Blocked and denied tools are registered (see Blocked and denied
 
 ## Tool list
 
-### read (26)
+### read (25)
 
 | Tool | Upstream | URI |
 |---|---|---|
@@ -60,7 +63,6 @@ Total: 95 tools. Blocked and denied tools are registered (see Blocked and denied
 | `mb_list_switch_types` | getSwitchTypeList | `/json/options/switchtypelistflex` |
 | `mb_list_packets` | getPacketsList | `/json/tarif/gettarifsfl` |
 | `mb_list_user_groups` | getUsersGroupsList | `/json/options/usersgroupslist` |
-| `mb_get_system_options` | getSystemOptions | `/extjs/users/getsystemoptions` |
 | `mb_list_tickets` | none | `/extjs/ticketview/getticketslist2x` | No `success` field; filters applied to the rows by the MCP |
 | `mb_get_ticket_notes` | none | `/json/ticketview/getnotes` | ticketid |
 | `mb_get_ticket_logs` | none | `/json/ticketview/getlogs` | ticketid |
@@ -68,7 +70,7 @@ Total: 95 tools. Blocked and denied tools are registered (see Blocked and denied
 | `mb_list_ticket_priorities` | none | `/json/ticketview/getprioritiestypeslist` | 1 high, 2 normal, 3 low |
 | `mb_list_ticket_performers` | none | `/extjs/ticketview/getPerformerList` | stuffid, login, fio |
 
-### write (13, not gated)
+### write (13; only `mb_delete_tickets` is gated)
 
 | Tool | Upstream | URI |
 |---|---|---|
@@ -83,7 +85,7 @@ Total: 95 tools. Blocked and denied tools are registered (see Blocked and denied
 | `mb_set_ticket_status` | none | `/extjs/ticketedit/putticketin` | status open, in_work, performed, closed; ticket_ids; rating with closed |
 | `mb_delete_sticky_note` | none | `/extjs/users/deletestickynotesuser` | id |
 | `mb_delete_user_device` | none | `/extjs/users/deleteuserdev` | uid (sent as useruid), devid from `mb_get_user_devices` |
-| `mb_delete_tickets` | none | `/extjs/ticketedit/deletetickets` | ticket_ids, sent as ticketid0, ticketid1, ... The result shows the tickets' state |
+| `mb_delete_tickets` | none | `/extjs/ticketedit/deletetickets` | ticket_ids, sent as ticketid0, ticketid1, ... Gated: reason, preview by default. The preview and the result show the tickets' state |
 | `mb_delete_ticket_note` | none | `/extjs/ticketedit/deletenotes` | noteid |
 
 ### account (11, gated)
@@ -120,12 +122,13 @@ Total: 95 tools. Blocked and denied tools are registered (see Blocked and denied
 | `mb_bulk_issue_credit` | none | `/json/users/creditmulti` | `set_users_list`, `credit` |
 | `mb_use_voucher` | none | `/json/users/usevaucherfl` | uid, code. A valid code adds balance |
 
-### admin (32, gated)
+### admin (33; all gated except `mb_get_system_options`)
 
 User groups, address objects (settlements, neighborhoods, lanes, houses) and infrastructure objects (sectors, switch types, switches, device types, IP pools, real IPs, NAS): create, edit and delete all need the `admin` scope and a reason.
 
 | Tool | Upstream | URI | Note |
 |---|---|---|---|
+| `mb_get_system_options` | getSystemOptions | `/extjs/users/getsystemoptions` | Read-only, not gated. Server settings and paths, keys not enumerated: values of password, secret, key and token options are masked |
 | `mb_create_user_group` | createUsersGroup | `/json/options/setusersgroup` | usersgroupname, share, description |
 | `mb_update_user_group` | none | `/json/options/setusersgroup` | With `usersgroupid` it updates |
 | `mb_delete_user_group` | none | `/json/options/deleteusersgroup` | **Use `delete_list`**. `usersgroupid` always returns "in use" |
@@ -175,7 +178,7 @@ User groups, address objects (settlements, neighborhoods, lanes, houses) and inf
 | `match` | `all` (default, every filter must match) or `any`. `any` is refused together with `states` or `internet`: with `op=0` Mikbill ORs those two selectors into the result (gid 38 plus state normal returned 61 rows, the union) instead of narrowing it. |
 | `limit` | Rows returned, default 100, maximum 1000. |
 
-Mikbill does not page the result and returns every subscriber for an empty search, so an empty search is refused and the rows are capped by `limit` (`totalCount` and `truncated` say what was left out). Rows are full subscriber records (personal data).
+Mikbill does not page the result and returns every subscriber for an empty search, so an empty search is refused and the rows are capped by `limit` (`totalCount` and `truncated` say what was left out). Mikbill's rows are full subscriber records (personal data), so by default the tool returns a summary row (`useruid`, `user`, `fio`, `state`, `status`, `gid`, `packet`, `deposit`, `credit`, `blocked`, `online`, `address`, `app`, `numdogovor`, `days_left`); `detail: "full"` returns the whole record. `mb_list_online_users` does the same with its own summary fields.
 
 `housingid` (a UI filter) is not exposed: the demo has no housings, so its values could not be verified.
 
@@ -190,10 +193,10 @@ Nine tools cover the ticket endpoints: reads in `read`, create, update, notes an
 What the endpoints do, and what the MCP does about it:
 
 - **`getticketslist2x` has no `success` field** (`{data, counters}`). The client accepts that envelope for this endpoint only (`no_success_key`). Everywhere else a missing `success` is still an error.
-- **It ignores filter parameters** (status, category, priority, ticketid, paging all returned every ticket). `mb_list_tickets` takes optional `statustypeid`, `categoryid`, `prioritytypeid` and `ticketid`, applies them to the returned rows, and never sends them. `counters` in the result are unfiltered. Each row already embeds its notes.
+- **It ignores filter parameters** (status, category, priority, ticketid, paging all returned every ticket). `mb_list_tickets` takes optional `statustypeid`, `categoryid`, `prioritytypeid` and `ticketid`, applies them to the returned rows, and never sends them. It returns at most `limit` rows (default 50): every row embeds its notes, which are free text. `counters` in the result are unfiltered. Each row already embeds its notes.
 - **Create and update share `setticket2x`.** The creator and note authors come from the session, so the UI's `employed_by_stuffid` and `note_author` are not sent. `useruid` links a subscriber, and the ticket's address then comes from the user's house.
 - **Status changes (`putticketin`) need the acting staff id.** A request with only `set_list` and `statustypeid` works for "open" and fails with error 1202 for the other statuses. The tool builds the full request the admin UI sends, using the session's own staff id (`data.stuff_propers.stuffid` from `/json/index/getstuffproper`, fetched once and cached). `status` is `open` (1), `closed` (2), `in_work` (3) or `performed` (4); `rating` (1 to 5) is only valid with `closed`. One call can change several tickets (`ticket_ids`, at most `MB_MAX_BULK`). The result reads the tickets back (`state_after`).
-- **Deletes** send `ticketid0`, `ticketid1`, ... `mb_delete_tickets` is a `write` tool: it runs when called, and the result shows each ticket's status, category, priority, rating and creation date (no names or phone numbers) read back afterwards, with `listed: false` for tickets that are gone. A deleted ticket cannot be restored through any endpoint found.
+- **Deletes** send `ticketid0`, `ticketid1`, ... `mb_delete_tickets` is a gated `write` tool: it needs a reason and previews by default (`dry_run: false` executes), and the preview and the result show each ticket's status, category, priority, rating and creation date (no names or phone numbers) read back afterwards, with `listed: false` for tickets that are gone. A deleted ticket cannot be restored through any endpoint found.
 - **Ticket notes** are treated as personal data: they are masked in the audit log.
 
 Lookups: `mb_list_ticket_categories`, `mb_list_ticket_priorities` and `mb_list_ticket_performers` give the category, priority and performer ids that `mb_create_ticket` and `mb_update_ticket` take (`set_list` is a comma list of performer staff ids).
@@ -216,8 +219,8 @@ Rules for the MCP:
 - `mb_delete_house` sends `houseid` only. Never `delete_list`.
 - `mb_delete_dev_type` is the reverse of houses: a plain `devtypeid` is the silent no-op (success, nothing deleted) and `delete_list` really deletes, refusing a type that a device still uses. Found by the contract run leaking a device type each time; the tool now sends `delete_list`.
 - `mb_delete_user_group` sends `delete_list`. Dry-run must count users with that `usersgroupid` first, because the in-use check was not reproduced with `delete_list`.
-- A preview (`dry_run: true`) of a delete runs the check endpoint where one exists and lists what would be affected. Single-target tools do not preview unless asked; the harness prompt is the approval.
-- **Mikbill does not enforce its own dependency checks for settlements, neighborhoods and lanes.** On the demo, the check endpoints report dependents ("can't delete lane with houses"; `checkdeletesettlement` returns error 2), but `dellaneflex`, `deleteneighborhood` and `deletesettlement` delete anyway and leave the houses pointing at nothing (lane name empty, neighborhood 0, settlement empty). So these three deletes stay gated in `admin`, and their previews (`dry_run: true`) run `checkdellane`, `checkdeleteneighborhood` and `checkdeletesettlement` so the dependents are visible before approval. Moving them to `write` was considered and rejected for this reason.
+- A preview (`dry_run: true`) of a delete runs the check endpoint where one exists and lists what would be affected. Single-target tools do not preview unless asked; the harness prompt is the approval. The same check runs again before the delete itself (`mb_delete_settlement`, `mb_delete_neighborhood`, `mb_delete_lane`, `mb_delete_packet`): if it fails, the call returns `conflict` and nothing is deleted, unless `force: true` is passed.
+- **Mikbill does not enforce its own dependency checks for settlements, neighborhoods and lanes.** On the demo, the check endpoints report dependents ("can't delete lane with houses"; `checkdeletesettlement` returns error 2), but `dellaneflex`, `deleteneighborhood` and `deletesettlement` delete anyway and leave the houses pointing at nothing (lane name empty, neighborhood 0, settlement empty). So these three deletes stay gated in `admin`, their previews (`dry_run: true`) run `checkdellane`, `checkdeleteneighborhood` and `checkdeletesettlement` so the dependents are visible before approval, and the server enforces the same check on the delete itself (`conflict` unless `force: true`). Moving them to `write` was considered and rejected for this reason.
 
 ## Soft delete
 
@@ -252,6 +255,8 @@ Previously blocked, now resolved:
 - error 1202 → `upstream_error` (generic, logged on the server)
 - `success: false` with `error: 1403` / `UnAuth` → `auth_failed` (re-login once, then error)
 - Missing `success` key, empty body, or HTTP non-200 → `upstream_error`
+- The audit record of a write cannot be written → `audit_unavailable` (nothing is sent)
+- A write whose request left but got no usable answer (read or write timeout, dropped connection, HTTP non-200, non-JSON body) keeps its code (`timeout` or `upstream_error`) and carries `"outcome": "unknown"`: the change may have been applied, so the caller must read the record back before retrying. A failure to connect is not marked: the request never left.
 
 ## Gated-tool mechanics
 
@@ -261,9 +266,21 @@ Gated tools are the ones in the `account`, `finance` and `admin` scopes.
 - **`reason`:** required (at least 3 characters) and written to the audit log with the tool, scope, principal and redacted parameters.
 - **No approval token.** The user's approval of a call is the client's job: MCP says a human SHOULD be able to deny tool invocations and clients SHOULD show inputs and confirm sensitive operations. A server-issued token that the same model requests and spends is not human approval, and it made harnesses prompt twice for one action (once for the preview, once for the call).
 - **Annotations:** every tool is listed with MCP tool annotations and a title: `readOnlyHint` for the read scope; for the rest `destructiveHint` (false only for additive creates such as `mb_create_*` and `mb_add_*`, true for updates, deletes, state changes and all money movement), `idempotentHint` (true for deletes, edits, updates and setters), and `openWorldHint` false. Annotations are hints from the server; clients treat them as untrusted, so they shape the prompt but are not a safety boundary.
-- **`dry_run`:** an optional boolean on gated tools. `true` returns the exact request, a target summary (uids and their current state, count, total amount for payments, dependency check results for deletes) and warnings, and sends nothing. The default is `true` for bulk tools (those taking `uids`: the `mb_bulk_*` tools) so a first call previews, and `false` for single-target tools, which execute on the first call. Pass `dry_run: false` to execute a bulk tool. Previews are not audited.
-- **Limits:** `MB_MAX_BULK` caps the uids per bulk call.
+- **`dry_run`:** an optional boolean on gated tools. `true` returns the exact request, a target summary (uids or tickets and their current state, count, total amount for payments, dependency check results for deletes) and warnings, and sends nothing. The default is `true` for bulk tools (those taking a list of targets: the `mb_bulk_*` tools and `mb_delete_tickets`) so a first call previews, and `false` for single-target tools, which execute on the first call. Pass `dry_run: false` to execute a bulk tool. Previews are not audited.
+- **`force`:** an optional boolean on the four deletes with a dependency check (see "Delete parameters"). Default `false`.
+- **Limits:** `MB_MAX_BULK` caps the uids per bulk call. `MB_MAX_PAYMENT` (default 10000) caps `deposit` and `credit` per account and `MB_MAX_PAYMENT_TOTAL` (default 50000) the total of one bulk call; both amounts must be more than 0.
 - **Results:** executed calls report state before and after where it is read back (soft deletes, restore, ticket deletes).
+
+### Server-side controls
+
+Approval is the client's job, so these are the controls that hold whatever the client or the model does:
+
+- **Scopes**, including the field rule above. Over HTTP a request whose scopes were not resolved gets none (never the server's full set).
+- **Typed arguments.** Field types are decided by Mikbill's field name in `schemas.py`: ids and counts are whole numbers (a string of ASCII digits is accepted), amounts are plain decimals without exponent, switches are 0 or 1, text is at most 4000 characters, numbers are finite. Mikbill parses leniently (`"12abc"` acts on 12), so nothing that names a record or an amount is passed on unchecked. The same types and limits are in each tool's JSON Schema, with a description for every argument.
+- **Money limits** (`MB_MAX_PAYMENT`, `MB_MAX_PAYMENT_TOTAL`).
+- **Dependency checks** on the deletes Mikbill does not protect.
+- **Audit before send** (see "Redaction and logging").
+- **Text from the database is data.** The server's `instructions` say so to the client, strings longer than 4000 characters are cut in tool output, and ticket lists are capped. This lowers the risk of indirect prompt injection (a subscriber writes instructions into a ticket); it does not remove it. An agent that reads tickets should hold a token without the gated scopes.
 
 ### Approval model
 
@@ -271,7 +288,9 @@ The harness decides who may call what: it should ask the user before each gated 
 
 ## Authentication and session
 
-- Configuration from env vars only: `MB_BASE_URL`, `MB_LOGIN`, `MB_PASSWORD` (plaintext; MD5-hashed in memory, as the protocol requires), `MB_SCOPES`, `MB_CA_BUNDLE`, `MB_TIMEOUT_CONNECT=5`, `MB_TIMEOUT_READ=30`, `MB_MAX_BULK=50` (cap on uids per bulk call), `MB_AUDIT_FILE` (optional JSON-lines audit log).
+- Configuration from env vars only: `MB_BASE_URL`, `MB_LOGIN`, `MB_PASSWORD` (plaintext; MD5-hashed in memory, as the protocol requires), `MB_SCOPES`, `MB_CA_BUNDLE`, `MB_TIMEOUT_CONNECT=5`, `MB_TIMEOUT_READ=30`, `MB_MAX_BULK=50` (cap on uids per bulk call), `MB_MAX_PAYMENT=10000`, `MB_MAX_PAYMENT_TOTAL=50000`, `MB_AUDIT_FILE` (optional JSON-lines audit log; opened at start-up, and a path that cannot be written stops the server).
+- Secrets can come from files instead: `MB_PASSWORD_FILE`, `MCP_HTTP_BEARER_TOKEN_FILE`, `MB_HTTP_TOKENS_FILE` (set the variable or its `_FILE` form, not both). The password is excluded from the settings' `repr`.
+- `MB_BASE_URL` must be `https`: the MD5 sent at login is password-equivalent and every call carries the session cookie. `MB_INSECURE_HTTP=1` accepts plain http and logs a warning. A URL with embedded credentials is refused.
 - One `httpx.AsyncClient` with a cookie jar holds the session. Login runs lazily.
 - The session cookie is sufficient. Calls without it return HTTP 200 with `success: false`, error 1403. The JWT header is not needed by the UI and is not sent.
 - On auth failure, re-login once and retry once. A second failure is an error.
@@ -282,9 +301,9 @@ The harness decides who may call what: it should ask the user before each gated 
 
 - The transport is chosen with `MCP_TRANSPORT` (`stdio` or `http`; default `stdio`), `--transport`, or `--http`. The command line wins. The settings marked HTTP-only below (`MCP_HTTP_HOST`, `MCP_HTTP_PORT`, `MCP_HTTP_BEARER_TOKEN`, `MB_HTTP_TOKENS`, `MCP_ALLOWED_ORIGINS`, `MCP_ALLOWED_HOSTS`) are read only in http mode and are ignored, not validated, in stdio mode, so one env file or one image serves both.
 - **stdio** (default): `python -m mb_mcp`, env from the MCP client config.
-- **Streamable HTTP**: `python -m mb_mcp --http`. Host and port come from `MCP_HTTP_HOST` and `MCP_HTTP_PORT` (defaults `127.0.0.1` and `8765`), or from `--host` and `--port`. Binds to localhost by default. Remote access goes through a TLS reverse proxy. The Docker image sets `0.0.0.0` and `8000`.
+- **Streamable HTTP**: `python -m mb_mcp --http`. Host and port come from `MCP_HTTP_HOST` and `MCP_HTTP_PORT` (defaults `127.0.0.1` and `8000`), or from `--host` and `--port`. Binds to localhost by default. Remote access goes through a TLS reverse proxy. The Docker image sets `0.0.0.0` and keeps port `8000`.
 - `GET /health` (and `HEAD`) answers `200 {"status":"ok"}` with no token and no Origin check. It is a liveness check for the HTTP server only: it does not call Mikbill and returns no configuration. The Docker health check uses it. Every other path needs a token.
-- HTTP requires `Authorization: Bearer <token>`. Each token has its own scope list. Config stores SHA-256 hashes. Missing or invalid token: 401. Disallowed `Origin`: 403. A token without a tool's scope does not see the tool in `tools/list`, and calling it returns a `scope_denied` tool error (not an HTTP 403). Tokens are configured with `MB_HTTP_TOKENS`, a JSON list of `{id, sha256, scopes}`, and/or `MCP_HTTP_BEARER_TOKEN`, one plain token (at least 16 characters; only its SHA-256 is kept) that gets every scope in `MB_SCOPES`, principal id `bearer` in the audit log; `MCP_ALLOWED_ORIGINS` lists allowed origins. The `Host` header must be `<bind host>:<port>`, `127.0.0.1:<port>`, `localhost:<port>` or listed in `MCP_ALLOWED_HOSTS` (otherwise 421), as DNS-rebinding protection. The repository ships a `Dockerfile`: one image for both modes (http on 8000 by default, stdio with `-e MCP_TRANSPORT=stdio`; the health check requests `/health` with the image's Python in http mode; the image has no curl or wget) and a Docker smoke test in `tests/smoke`.
+- HTTP requires `Authorization: Bearer <token>`. Each token has its own scope list. Config stores SHA-256 hashes. Missing or invalid token: 401. Disallowed `Origin`: 403. After `MB_AUTH_MAX_FAILURES` failed logins (default 10) from one client address within a minute, that address gets 429 with `Retry-After` until the failures leave the window, whatever token it then presents; `0` turns this off. The first failure of a burst and the block are written to the audit log with the address as principal. The limit keys on the address the server sees, which behind a reverse proxy is the proxy. A token without a tool's scope does not see the tool in `tools/list`, and calling it returns a `scope_denied` tool error (not an HTTP 403). Tokens are configured with `MB_HTTP_TOKENS`, a JSON list of `{id, sha256, scopes}`, and/or `MCP_HTTP_BEARER_TOKEN`, one plain token (at least 16 characters; only its SHA-256 is kept) that gets every scope in `MB_SCOPES`, principal id `bearer` in the audit log; `MCP_ALLOWED_ORIGINS` lists allowed origins. The `Host` header must be `<bind host>:<port>`, `127.0.0.1:<port>`, `localhost:<port>` or listed in `MCP_ALLOWED_HOSTS` (otherwise 421), as DNS-rebinding protection. The repository ships a `Dockerfile`: one image for both modes (http on 8000 by default, stdio with `-e MCP_TRANSPORT=stdio`; the health check requests `/health` with the image's Python in http mode; the image has no curl or wget) and a Docker smoke test in `tests/smoke`.
 - Validate the `Origin` header and reject unknown origins.
 - HTTP mode shares one Mikbill session across clients. Scope checks run per token before any upstream call.
 
@@ -298,15 +317,19 @@ The harness decides who may call what: it should ask the user before each gated 
   {"ok": false, "error": {"code": "upstream_error|auth_failed|timeout|validation|scope_denied|conflict|precondition_failed|denied_by_settings", "message": "..."}}
   ```
 - `mb_get_user_payment_history` requires at least one filter (`uid`, or `from_date`/`to_date`). `mb_search_users` requires at least one search filter (see User search).
-- Tools that return many rows take `limit` (`mb_search_users` default 100, `mb_list_online_users` default 200, maximum 1000). The result has `totalCount` (rows that matched, before the limit) and `truncated`.
+- Tools that return many rows take `limit` (`mb_search_users` default 100, `mb_list_online_users` default 200, `mb_list_tickets` default 50, maximum 1000). The result has `totalCount` (rows that matched, before the limit) and `truncated`. The two subscriber lists take `detail` (`summary`, the default, or `full`).
+- Every tool has a description written for the model (`Endpoint.desc`; the maintainer's `note` is never shown), and every argument has a type and a description.
 - Tool descriptions are in English. Mikbill field names keep their original spelling.
 
 ## Redaction and logging
 
-- User records return plaintext credentials: `password`, `router_pass`, `router_wep_pass`, and `pass` in history `postauth` rows. Redact these by default. Optional reveal needs its own scope and is not in v1.
-- Personal fields (phone, passport, INN, address, email, date of birth) are redacted from logged bodies. Field allowlists apply to reads.
+- User records return plaintext credentials: `password`, `router_pass`, `router_wep_pass`, and `pass` in history `postauth` rows. They are always masked in tool output, and so is any other key that names a credential (pattern: `password`, `passwd`, `pwd`, `_pass`, `secret`, `token`, `api_key`, `private_key`, `_key`, `activation_code`), because option and record names are not enumerated. Optional reveal needs its own scope and is not in v1.
+- Identity documents (`passport*`, `inn`, `date_birth*`, `ext_passport_date`, `ext_doc_*`) are masked in tool output unless the caller has the `pii` scope. Contact data (name, phone, e-mail, address) is returned: support work needs it. Lists of subscribers return summary rows by default (see User search).
 - Logs never contain the password, session cookies, JWT, bearer tokens, or the MD5 hash.
-- Audit entries for writes, gated calls, and auth failures: timestamp, tool, scope, token id, target uid or id, `reason`, outcome.
+- **Audit log.** One JSON line per event, to the `mb_mcp.audit` logger and to `MB_AUDIT_FILE`: timestamp, tool, scope (with any further scope a field needed, as `write+finance`), principal (token id), `reason`, outcome, arguments.
+  - A call that changes data is recorded twice with the same `id`: `attempt` before the request is sent, then the outcome (`ok` or the error code, with the error text). If the attempt cannot be written to the file, the call is not sent (`audit_unavailable`). If the outcome cannot be written, that is reported on the logger and the caller still gets the real result: a failed audit write never turns an executed call into an error.
+  - Reads are recorded once, with `rows`. Scope denials and failed HTTP logins are recorded. Previews and validation errors are not.
+  - Arguments go through an allowlist: ids, amounts, switches, enums and dates are kept; every other value (names, notes, addresses, logins, search text, voucher codes) is masked. A new argument is masked until it is added to the list.
 
 ## Discovered endpoints
 
@@ -379,16 +402,17 @@ mikbill-mcp/
 
 ## Verification
 
-1. **Unit tests** (`pytest`, `respx`): login and MD5 hashing; one re-login on failure; `success: false` mapping; each error code in the mapping table, using recorded responses from the fixtures; scope registration (counts per scope: 26, 13, 11, 13, 32); a preview makes no upstream POST; bulk tools preview by default and single tools execute; there is no approval token; annotations on every tool; missing `reason` rejected; delete tools use the parameter listed in this spec; `mb_delete_house` never sends `delete_list`; bearer and Origin checks; redaction.
+1. **Unit tests** (`pytest`, `respx`): login and MD5 hashing; one re-login on failure; `success: false` mapping; each error code in the mapping table, using recorded responses from the fixtures; scope registration (counts per scope: 25, 13, 11, 13, 33); a preview makes no upstream POST; bulk tools preview by default and single tools execute; there is no approval token; annotations on every tool; missing `reason` rejected; delete tools use the parameter listed in this spec; `mb_delete_house` never sends `delete_list`; bearer and Origin checks; redaction.
 2. **Contract tests** (opt-in; demo or own test instance only, MCPTEST records only): the verified sequence through the MCP. Soft delete leaves state 4. Blocked tools return their mapped codes.
 3. **MCP inspector:** `npx @modelcontextprotocol/inspector python -m mb_mcp` lists tools per scope.
 4. **Client config check:** add to Claude Code or Claude Desktop with env vars; search a test user by `uid`.
-5. **HTTP mode:** no token gives 401; read-only token calling `mb_create_user` gives 403; gated call without `reason` is rejected.
+5. **HTTP mode:** no token gives 401; a read-only token calling `mb_create_user` gets a `scope_denied` tool error; a gated call without `reason` is rejected; repeated bad tokens get 429.
+   One regression section per finding of the 2026-11 security review is in `tests/unit/test_hardening.py`.
 6. **Security:** TLS verification on by default; no tool in any scope wraps console execution.
 
 ## Assumptions
 
-1. Deletes of users, packets, user groups and admin objects are gated; deletes of sticky notes, user devices, tickets and ticket notes are `write` tools. Confirmed by the user.
+1. Deletes of users, packets, user groups and admin objects are gated; deletes of sticky notes, user devices, tickets and ticket notes are `write` tools. Confirmed by the user. Changed after the 2026-11 security review: `mb_delete_tickets` stays in `write` but is gated there (reason, preview by default), because it cannot be undone.
 2. `mb_delete_user_full` stays registered and returns `denied_by_settings` where denied. Confirmed by the user.
 3. Discovered endpoints are included after verification. Confirmed by the user. Pending ones are listed above.
 4. Packet catalog edits, personal service, voucher use, and user-group create/update are gated because they change billing or privileges.

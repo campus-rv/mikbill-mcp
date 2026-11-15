@@ -1,6 +1,6 @@
 # mb-mcp
 
-MCP server for the Mikbill admin API. 95 tools in five scopes, including tickets and user restore, with opt-in scopes, a reason and an audit log for everything that changes billing, account state or privileges, and MCP tool annotations so the client asks the user before it runs them. The design is in [SPEC.md](SPEC.md); per-endpoint evidence from the public demo is in [fixtures/](fixtures/).
+MCP server for the Mikbill admin API. 95 tools in five scopes, including tickets and user restore, with opt-in scopes, a reason and an audit log for everything that changes billing, account state or privileges, server-side limits on ids and amounts, and MCP tool annotations so the client asks the user before it runs them. What the server enforces by itself, and what it leaves to the client, is in [Security model](#security-model). The design is in [SPEC.md](SPEC.md); per-endpoint evidence from the public demo is in [fixtures/](fixtures/).
 
 ## Install and test
 
@@ -13,6 +13,8 @@ python -m venv .venv
 ```
 
 `python -m mb_mcp --list-endpoints` prints the tool table without any network access.
+
+Lint and type check (both run in CI): `python -m ruff check src tests` and `python -m mypy`.
 
 ## Live contract tests (opt-in, write to the target)
 
@@ -34,24 +36,29 @@ Environment variables only. Never commit them.
 
 | Variable | Meaning | Default |
 |---|---|---|
-| `MB_BASE_URL` | Mikbill admin URL, e.g. `https://admin.example.com` | required |
+| `MB_BASE_URL` | Mikbill admin URL, e.g. `https://admin.example.com`. Must be `https` | required |
+| `MB_INSECURE_HTTP` | `1` accepts a plain `http://` `MB_BASE_URL` (the login and the session cookie then travel unencrypted; logged as a warning) | off |
 | `MB_LOGIN`, `MB_PASSWORD` | A dedicated, least-privileged Mikbill admin account | required |
-| `MB_SCOPES` | Comma list of `read,write,finance,account,admin` | `read,write` |
+| `MB_PASSWORD_FILE`, `MCP_HTTP_BEARER_TOKEN_FILE`, `MB_HTTP_TOKENS_FILE` | Read the secret from a file (Docker or Kubernetes secrets) instead of the variable of the same name. Set one or the other, not both | none |
+| `MB_SCOPES` | Comma list of `read,write,finance,account,admin,pii` | `read,write` |
 | `MB_MAX_BULK` | Maximum uids per bulk call | `50` |
+| `MB_MAX_PAYMENT` | Largest amount one call may credit to one account (`deposit`, `credit`). In the currency of the installation: set it to fit yours | `10000` |
+| `MB_MAX_PAYMENT_TOTAL` | Largest total of one bulk call (amount times accounts) | `50000` |
+| `MB_AUTH_MAX_FAILURES` | HTTP only: failed logins per client address and minute before the address gets 429. `0` turns it off | `10` |
 | `MB_CA_BUNDLE` | CA bundle for private certificates | system store |
 | `MB_INSECURE_TLS` | `1` disables TLS verification (logged as a warning) | off |
 | `MB_TIMEOUT_CONNECT`, `MB_TIMEOUT_READ` | Seconds | `5`, `30` |
-| `MB_AUDIT_FILE` | Path for a JSON-lines audit log of writes and gated calls | off |
+| `MB_AUDIT_FILE` | Path for a JSON-lines audit log of every tool call. The file is opened at start-up: a path that cannot be written stops the server | off (events still go to the log on stderr) |
 | `MCP_TRANSPORT` | `stdio` (a local MCP client starts the server) or `http` (Streamable HTTP). `--transport` or `--http` override it. The Docker image sets `http` | `stdio` |
 | `MCP_HTTP_BEARER_TOKEN` | HTTP only: one plain bearer token (at least 16 characters) that may use every scope in `MB_SCOPES`. Only its SHA-256 is kept in memory | none |
 | `MB_HTTP_TOKENS` | HTTP only: JSON list `[{"id": "agent1", "sha256": "<hex>", "scopes": ["read"]}]`, for tokens with different scopes. Can be combined with `MCP_HTTP_BEARER_TOKEN` | none |
-| `MCP_HTTP_HOST`, `MCP_HTTP_PORT` | HTTP only: bind address and port. `--host` and `--port` override them. The Docker image sets `0.0.0.0` and `8000` | `127.0.0.1`, `8765` |
+| `MCP_HTTP_HOST`, `MCP_HTTP_PORT` | HTTP only: bind address and port. `--host` and `--port` override them. The Docker image sets `0.0.0.0` | `127.0.0.1`, `8000` |
 | `MCP_ALLOWED_ORIGINS` | HTTP only: comma list of allowed `Origin` values | none |
 | `MCP_ALLOWED_HOSTS` | HTTP only: extra allowed `Host` header values (`host:port`), for proxies and port mappings | none |
 
 The variables marked "HTTP only" are read only when the transport is `http`. In stdio mode they are ignored and not validated, so one env file can serve both modes.
 
-The default scopes (`read`, `write`) expose the read tools and the non-gated writes. The `finance`, `account` and `admin` scopes are opt-in. (`account` was named `account_state` in 0.0.1; the old name is no longer accepted.)
+The default scopes (`read`, `write`) expose the read tools and the non-gated writes. The `finance`, `account` and `admin` scopes are opt-in. (`account` was named `account_state` in 0.0.1; the old name is no longer accepted.) `pii` holds no tools: it decides whether identity documents in subscriber records are returned or masked (see [Security model](#security-model)).
 
 ## Gated tools
 
@@ -77,7 +84,30 @@ python -m mb_mcp --list-endpoints | awk '$1=="finance"||$1=="account"||$1=="admi
 }
 ```
 
-Soft deletes (`mb_delete_user`, `mb_bulk_delete_users`, `mb_delete_disconnected_user`) leave the account in the database with state 4; `mb_restore_user` brings it back. Deletes of sticky notes, user devices, tickets and ticket notes are in the `write` scope and run without `reason` or preview. Passwords in Mikbill responses are masked in tool output.
+Soft deletes (`mb_delete_user`, `mb_bulk_delete_users`, `mb_delete_disconnected_user`) leave the account in the database with state 4; `mb_restore_user` brings it back. Deletes of sticky notes, user devices and ticket notes are in the `write` scope and run without `reason` or preview. `mb_delete_tickets` is also in `write`, but it cannot be undone, so it takes a `reason` and previews by default like a bulk tool.
+
+Three more rules apply on top of the scope of a tool:
+
+- **A change that belongs to another scope needs that scope.** `mb_update_user` is a `write` tool for name, note and contacts. Sending `gid` (a tariff change) through it also needs `finance`; `usersgroupid`, `password` or `blocked` also need `account`; and each of them needs a `reason`. `mb_restore_user` with `gid` needs `finance` as well as `account`.
+- **Deletes that Mikbill does not protect are checked by the server.** `mb_delete_lane`, `mb_delete_neighborhood`, `mb_delete_settlement` and `mb_delete_packet` run Mikbill's dependency check first and return `conflict` when it fails. `force: true` deletes anyway.
+- **A write with an unknown outcome says so.** If the request left and no usable answer came back (a read timeout, a dropped connection, a proxy error), the error carries `"outcome": "unknown"`. Read the record back before retrying: a retried payment is a double payment.
+
+## Security model
+
+What the server enforces, whatever the client or the model does:
+
+- **Scopes**, per token over HTTP. Over HTTP a request without resolved scopes gets none.
+- **Typed arguments.** Ids are whole numbers, amounts are plain decimals, switches are 0 or 1. Mikbill parses leniently (`"12abc"` acts on 12), so nothing that names a record or an amount is passed on unchecked.
+- **Money limits**: `MB_MAX_PAYMENT` per account and `MB_MAX_PAYMENT_TOTAL` per bulk call. Amounts must be more than 0.
+- **An audit record before the request.** A call that changes data is written to the audit log as `attempt` before it is sent, and again with its outcome (`ok` or the error code), linked by `id`. If the attempt cannot be written, the call is not sent (`audit_unavailable`). Reads are recorded once, with the row count. Arguments are logged through an allowlist: ids, amounts, switches and dates are kept, every free-text value (names, notes, logins, voucher codes) is masked.
+- **Redaction.** Passwords, secrets, keys and tokens are masked in tool output by key name and by pattern (`*password*`, `*_pass`, `*secret*`, `*token*`, `*api_key*`, ...). Passport, tax id and birth date fields are masked unless the caller has the `pii` scope.
+- **Data minimisation.** `mb_search_users` and `mb_list_online_users` return a short row per subscriber; `detail: "full"` returns the whole record. `mb_list_tickets` returns 50 rows unless `limit` says otherwise. `mb_get_system_options` (server settings and paths) is in `admin`, not `read`.
+- **Failed logins** over HTTP are throttled per client address (`MB_AUTH_MAX_FAILURES`) and written to the audit log. Behind a reverse proxy every client has the proxy's address, so throttle there too.
+
+What it cannot enforce:
+
+- **Approval.** A token or env with a gated scope can run those tools without a human. Grant them only to clients that ask the user.
+- **Prompt injection.** Tool results carry text that subscribers and staff typed: ticket bodies and notes, names, sticky notes. The server tells the client at start-up that this is data, not instructions, and cuts very long strings, but a model can still be misled. Give an agent that reads tickets a token without `finance`, `account` and `admin`, and use a separate, human-approved client for those.
 
 ## Run over stdio (Claude Code / Claude Desktop)
 
@@ -105,7 +135,7 @@ $env:MCP_HTTP_BEARER_TOKEN = '<a secret of at least 16 characters>'
 .\.venv\Scripts\python -m mb_mcp --http          # or MCP_TRANSPORT=http; host and port from MCP_HTTP_HOST / MCP_HTTP_PORT, or --host / --port
 ```
 
-Endpoint: `http://127.0.0.1:8765/mcp` with `Authorization: Bearer <token>`. At least one token is required: `MCP_HTTP_BEARER_TOKEN` (one token with all configured scopes) or `MB_HTTP_TOKENS` (several tokens with their own scopes, stored as SHA-256 hashes). A token only sees tools in its scopes, intersected with `MB_SCOPES`. Binds to localhost by default; put a TLS reverse proxy in front for remote access.
+Endpoint: `http://127.0.0.1:8000/mcp` with `Authorization: Bearer <token>`. At least one token is required: `MCP_HTTP_BEARER_TOKEN` (one token with all configured scopes) or `MB_HTTP_TOKENS` (several tokens with their own scopes, stored as SHA-256 hashes). A token only sees tools in its scopes, intersected with `MB_SCOPES`. Binds to localhost by default; put a TLS reverse proxy in front for remote access.
 
 `GET /health` answers `200 {"status":"ok"}` without a token. It only tells you the HTTP server is up; it does not call Mikbill and reveals no configuration.
 
@@ -243,7 +273,7 @@ To build from a checkout instead of pulling, uncomment `build: {context: ..}` in
 
 ### Details
 
-The image (python:3.15-slim, about 250 MB, non-root user `mbmcp`) sets `MCP_TRANSPORT=http`, `MCP_HTTP_HOST=0.0.0.0` and `MCP_HTTP_PORT=8000` and serves Streamable HTTP at `:8000/mcp`. The Docker health check requests `http://127.0.0.1:$MCP_HTTP_PORT/health` with the image's own Python in http mode (no curl or wget in the image); in stdio mode there is no server to probe, so it passes. Because the server binds `0.0.0.0` inside the container, publish the port on `127.0.0.1` or put a TLS proxy in front. The server rejects requests whose `Host` header is not `localhost:<port>`, `127.0.0.1:<port>` or listed in `MCP_ALLOWED_HOSTS` (comma list of `host:port`). The health check calls `127.0.0.1`, so do not set `MCP_HTTP_HOST` to one specific non-loopback address.
+The image (python:3.15-slim pinned by digest, non-root user `mbmcp`, no pip inside) installs every Python package from `requirements.lock` with `--require-hashes`. After changing a dependency in `pyproject.toml`, run `sh scripts/lock.sh` to regenerate the lock files. It sets `MCP_TRANSPORT=http`, `MCP_HTTP_HOST=0.0.0.0` and `MCP_HTTP_PORT=8000` and serves Streamable HTTP at `:8000/mcp`. The Docker health check requests `http://127.0.0.1:$MCP_HTTP_PORT/health` with the image's own Python in http mode (no curl or wget in the image); in stdio mode there is no server to probe, so it passes. Because the server binds `0.0.0.0` inside the container, publish the port on `127.0.0.1` or put a TLS proxy in front. The server rejects requests whose `Host` header is not `localhost:<port>`, `127.0.0.1:<port>` or listed in `MCP_ALLOWED_HOSTS` (comma list of `host:port`). The health check calls `127.0.0.1`, so do not set `MCP_HTTP_HOST` to one specific non-loopback address.
 
 ### Tests and CI
 
@@ -253,10 +283,9 @@ Unit tests run without Docker. The smoke test needs a local Docker daemon: it bu
 MB_SMOKE=1 python -m pytest tests/smoke -v
 ```
 
-Set `MB_SMOKE_IMAGE=<name>` to test an image you already built. CI runs the unit tests on Python 3.12, 3.14 and 3.15, runs this smoke test on the amd64 image, starts the arm64 image under QEMU and checks `/health`, and then pushes the multi-arch image (not for pull requests).
+Set `MB_SMOKE_IMAGE=<name>` to test an image you already built. CI runs ruff, mypy, `pip-audit` and a lock-file check, runs the unit tests on Python 3.12, 3.14 and 3.15, runs this smoke test on the amd64 image, scans the image with Trivy (a fixable HIGH or CRITICAL finding fails the build), starts the arm64 image under QEMU and checks `/health`, and then pushes the multi-arch image (not for pull requests). Actions are pinned to commits and CI installs from `requirements-dev.lock` with hashes; Dependabot proposes the updates.
 
 ## Status
 
-- Implemented: client, error mapping, gating, redaction, audit, runtime, stdio and HTTP servers, Docker image. 289 unit tests pass, including an in-memory MCP session and a real HTTP round trip. 22 Docker smoke tests pass.
-- The live contract suite (`tests/contract`) passes against the public Mikbill demo. All 10 tests passed on the last run, including the tests for ticket lookups, user history, devices and restore. Some paths are only partly covered: `mb_use_voucher` is tested with a wrong code only, and `mb_set_personal_service` only on a service without a portal.
+- Implemented: client, error mapping, gating, redaction, audit, runtime, stdio and HTTP servers, Docker image. 384 unit tests, including an in-memory MCP session, a real HTTP round trip and one regression section per finding of the 2026-11 security review (`tests/unit/test_hardening.py`). 22 Docker smoke tests pass.- The live contract suite (`tests/contract`) passes against the public Mikbill demo. All 10 tests passed on the last run, including the tests for ticket lookups, user history, devices and restore. Some paths are only partly covered: `mb_use_voucher` is tested with a wrong code only, and `mb_set_personal_service` only on a service without a portal.
 - Open items are listed in SPEC.md ("Blocked and denied", "Discovered endpoints").

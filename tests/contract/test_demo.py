@@ -23,9 +23,10 @@ from __future__ import annotations
 import json
 import os
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from datetime import date, timedelta
-from typing import Any, Awaitable, Callable
+from typing import Any
 from urllib.parse import urlparse
 
 import pytest
@@ -192,7 +193,11 @@ async def test_user_search_filters_and_online_users(demo):
     """Read-only. The filters are the admin UI's search tab (fixtures/search_and_online_verified.json)."""
     await demo.err("mb_search_users", "validation")  # an empty search would return every subscriber
 
-    normal = await demo.ok("mb_search_users", states=["normal"], limit=200)
+    # the default row is a summary; detail="full" returns the whole record (the filters below need IP, MAC and switch)
+    short = await demo.ok("mb_search_users", states=["normal"], limit=5)
+    assert short["detail"] == "summary" and short["data"]
+    assert all("local_ip" not in r and "phone" not in r and r["useruid"] for r in short["data"])
+    normal = await demo.ok("mb_search_users", states=["normal"], limit=200, detail="full")
     assert normal["data"] and all(r["status"] == "normal" for r in normal["data"])
     assert normal["totalCount"] >= len(normal["data"])
     sample = next(r for r in normal["data"] if r["gid"] not in ("", "0") and r["local_ip"] and r["user"])

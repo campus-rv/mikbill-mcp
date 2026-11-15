@@ -2,10 +2,9 @@
 
 import json
 
-import pytest
 from mcp.client import Client
 
-from conftest import ALL_SCOPE_SET, FakeClient
+from conftest import FakeClient
 from mb_mcp.config import ALL_SCOPES, Settings
 from mb_mcp.http_auth import request_scopes
 from mb_mcp.runtime import Runtime
@@ -26,7 +25,7 @@ async def test_list_tools_by_scope():
     rt, _ = make({"read", "write"})
     async with Client(build_server(rt)) as client:
         tools = (await client.list_tools()).tools
-    assert len(tools) == 39
+    assert len(tools) == 38
     names = {t.name for t in tools}
     assert "mb_kick_user" in names and "mb_delete_user" not in names and "mb_add_house" not in names
 
@@ -104,5 +103,5 @@ async def test_request_scopes_context_limits_listing():
             denied = await client.call_tool("mb_kick_user", {"uid": 1})
     finally:
         request_scopes.reset(token)
-    assert len(tools) == 26
+    assert len(tools) == 25
     assert denied.is_error and payload(denied)["error"]["code"] == "scope_denied"

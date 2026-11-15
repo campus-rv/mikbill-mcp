@@ -4,7 +4,7 @@ import httpx
 import pytest
 import respx
 
-from conftest import ALL_SCOPE_SET, FakeClient
+from conftest import FakeClient
 from mb_mcp.client import MikbillClient
 from mb_mcp.config import Settings
 from mb_mcp.endpoints import ALL
@@ -49,8 +49,10 @@ def test_ticket_tools_scopes():
     for name in ("mb_list_tickets", "mb_get_ticket_notes", "mb_get_ticket_logs"):
         assert by_name[name].scope == "read" and not by_name[name].gated
     for name in ("mb_create_ticket", "mb_update_ticket", "mb_add_ticket_note", "mb_set_ticket_status",
-                 "mb_delete_tickets", "mb_delete_ticket_note"):
+                 "mb_delete_ticket_note"):
         assert by_name[name].scope == "write" and not by_name[name].gated
+    # cannot be undone: in the write scope, but with a reason and a preview by default
+    assert by_name["mb_delete_tickets"].scope == "write" and by_name["mb_delete_tickets"].gated
 
 
 def test_status_tool_schema_has_enums(trt):
@@ -202,19 +204,29 @@ async def test_status_validation(trt, tfake, args):
 
 # ---- deletes (write scope: the client asks the user, the server does not preview) ------------------------------
 
+async def test_delete_tickets_previews_by_default_and_shows_the_tickets(trt, tfake):
+    r = await trt.execute("mb_delete_tickets", {"ticket_ids": [59, 60], "reason": "duplicates"}, READ_WRITE)
+    assert r["ok"] and r["dry_run"] is True
+    assert [t["ticketid"] for t in r["data"]["summary"]["targets"]] == [59, 60] and r["data"]["summary"]["count"] == 2
+    assert "Real Name" not in json.dumps(r)
+    assert tfake.posted("/extjs/ticketedit/deletetickets") == []
+
+
 async def test_delete_tickets_sends_enumerated_ids_and_reads_the_state_back(trt, tfake):
-    r = await trt.execute("mb_delete_tickets", {"ticket_ids": [59, 60]}, READ_WRITE)
+    r = await trt.execute("mb_delete_tickets", {"ticket_ids": [59, 60], "reason": "duplicates", "dry_run": False},
+                          READ_WRITE)
     assert r["ok"] and "dry_run" not in r
     assert tfake.posted("/extjs/ticketedit/deletetickets") == [{"ticketid0": "59", "ticketid1": "60"}]
     assert [t["ticketid"] for t in r["state_after"]] == [59, 60]
     assert "Real Name" not in json.dumps(r)  # no personal data in the read-back
 
 
-async def test_delete_tickets_and_notes_have_no_reason_or_dry_run(trt, tfake):
-    for tool, args in (("mb_delete_tickets", {"ticket_ids": [59]}), ("mb_delete_ticket_note", {"noteid": 33})):
-        for extra in ({"reason": "x y z"}, {"dry_run": True}):
-            r = await trt.execute(tool, {**args, **extra}, READ_WRITE)
-            assert r["error"]["code"] == "validation", (tool, extra)
+async def test_delete_tickets_needs_a_reason_and_deleting_a_note_takes_none(trt, tfake):
+    r = await trt.execute("mb_delete_tickets", {"ticket_ids": [59], "dry_run": False}, READ_WRITE)
+    assert r["error"]["code"] == "validation" and "reason" in r["error"]["message"]
+    for extra in ({"reason": "x y z"}, {"dry_run": True}):
+        r = await trt.execute("mb_delete_ticket_note", {"noteid": 33, **extra}, READ_WRITE)
+        assert r["error"]["code"] == "validation", extra
     assert tfake.calls == []
 
 
@@ -231,6 +243,7 @@ async def test_delete_note_sends_noteid(trt, tfake):
 
 async def test_ticket_notes_are_not_written_to_the_audit_log(settings, tfake, tmp_path):
     from dataclasses import replace
+
     from mb_mcp.audit import AuditLog
     from mb_mcp.runtime import Runtime
     path = tmp_path / "audit.log"

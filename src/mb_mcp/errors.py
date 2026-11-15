@@ -13,16 +13,25 @@ CODES = (
     "conflict",
     "precondition_failed",
     "denied_by_settings",
+    "audit_unavailable",
 )
+
+UNKNOWN_OUTCOME_HINT = ("The request may have reached Mikbill, so the change may or may not have been applied. Do not "
+                        "retry blindly: read the record back first (for a payment, mb_get_user_payment_history).")
 
 MISSING_PARAM_MARKER = "Не указан обязательный параметр"
 
 
 class MikbillError(Exception):
-    """An error with one of CODES. `status` is the HTTP status when known."""
+    """An error with one of CODES. `status` is the HTTP status when known.
+
+    `maybe_applied` is set by the client when the request was (or may have been) sent but no usable answer came
+    back: a read timeout, a dropped connection, a proxy error page. For a write, the outcome is then unknown.
+    `outcome_unknown` is set by the runtime when such an error ends a call that changes data.
+    """
 
     def __init__(self, code: str, message: str, *, status: int | None = None,
-                 upstream: dict[str, Any] | None = None) -> None:
+                 upstream: dict[str, Any] | None = None, maybe_applied: bool = False) -> None:
         super().__init__(f"{code}: {message}")
         if code not in CODES:
             raise ValueError(f"unknown error code: {code}")
@@ -30,11 +39,22 @@ class MikbillError(Exception):
         self.message = message
         self.status = status
         self.upstream = upstream
+        self.maybe_applied = maybe_applied
+        self.outcome_unknown = False
+
+    def mark_outcome_unknown(self) -> MikbillError:
+        """For a write that failed after the request left: say so, in the message and as a field."""
+        if not self.outcome_unknown:
+            self.outcome_unknown = True
+            self.message = f"{self.message}. Outcome unknown. {UNKNOWN_OUTCOME_HINT}"
+        return self
 
     def to_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {"code": self.code, "message": self.message}
         if self.status is not None:
             out["http_status"] = self.status
+        if self.outcome_unknown:
+            out["outcome"] = "unknown"
         return out
 
 

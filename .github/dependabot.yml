@@ -1,0 +1,20 @@
+# Keeps the pins fresh: the commit pins of the GitHub Actions, the digest of the base image in the Dockerfile, and
+# the Python dependencies. For a Python update, run scripts/lock.sh on the branch so the three lock files (which CI
+# and the Dockerfile install with --require-hashes) are regenerated together.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      python:
+        patterns: ["*"]
