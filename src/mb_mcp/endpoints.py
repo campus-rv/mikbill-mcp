@@ -7,7 +7,7 @@ form-encoded params and a JSON response with a `success` field.
 Scopes: read, write (not gated), and the gated scopes finance, account, admin.
 `admin` holds user groups, the address objects (settlements, neighborhoods, lanes, houses) and the
 infrastructure objects (sectors, switches, switch types, device types, IP pools, real IPs, NAS): every
-create, edit and delete, all gated. `admin` also holds the read-only mb_get_system_options. `write` is users, user devices,
+create, edit and delete, all gated. `admin` also holds the read-only mb_get_system_options. `account` also holds creating a subscriber. `write` is editing users, user devices,
 sticky notes, kick, and tickets (create, update, notes, status), and the deletes of sticky notes, user devices,
 tickets and ticket notes. mb_delete_tickets cannot be undone, so it is gated inside `write`: reason, preview by default.
 
@@ -124,12 +124,9 @@ READ: list[Endpoint] = [
              desc="List staff who can be ticket performers (stuffid, login, name)."),
 ]
 
-# ---- write (13; only mb_delete_tickets is gated) --------------------------------------------
+# ---- write (12; only mb_delete_tickets is gated) --------------------------------------------
 
 WRITE: list[Endpoint] = [
-    Endpoint("mb_create_user", "createAbonent", "/extjs/users/createabonent", "write",
-             note="Needs a sector with free IPs.",
-             desc="Create a subscriber on a tariff, in a sector and at an address. Returns the new useruid."),
     Endpoint("mb_update_user", "updateUser", "/extjs/users/updateuser", "write", note="Uses useruid.",
              desc="Edit a subscriber: name, note, e-mail, phone and login. Changing the tariff (gid), the group, the password or the blocked flag through this tool needs a further scope and a reason."),
     Endpoint("mb_kick_user", "userKickOnline", "/json/users/userkickfl", "write", note="uid.",
@@ -167,9 +164,12 @@ WRITE: list[Endpoint] = [
              desc="Delete one ticket note permanently."),
 ]
 
-# ---- account (11, gated) -----------------------------------------------------------
+# ---- account (12, gated) -----------------------------------------------------------
 
 ACCOUNT: list[Endpoint] = [
+    Endpoint("mb_create_user", "createAbonent", "/extjs/users/createabonent", "account", gated=True,
+             note="Needs a sector with free IPs.",
+             desc="Create a subscriber on a tariff, in a sector and at an address. Returns the new useruid."),
     Endpoint("mb_freeze_user", "setFreezeUser", "/json/users/dofreezeuserfl", "account", gated=True,
              desc="Freeze a subscriber's account, now or for a period."),
     Endpoint("mb_bulk_enable_users", None, "/json/users/enableusersmulti", "account", gated=True,

@@ -58,7 +58,7 @@ Environment variables only. Never commit them.
 
 The variables marked "HTTP only" are read only when the transport is `http`. In stdio mode they are ignored and not validated, so one env file can serve both modes.
 
-The default scopes (`read`, `write`) expose the read tools and the non-gated writes. The `finance`, `account` and `admin` scopes are opt-in. (`account` was named `account_state` in 0.0.1; the old name is no longer accepted.) `pii` holds no tools: it decides whether identity documents in subscriber records are returned or masked (see [Security model](#security-model)).
+The default scopes (`read`, `write`) expose the read tools and the non-gated writes (editing users, devices, notes, kick, tickets). Creating a subscriber (`mb_create_user`) is in `account`. The `finance`, `account` and `admin` scopes are opt-in. (`account` was named `account_state` in 0.0.1; the old name is no longer accepted.) `pii` holds no tools: it decides whether identity documents in subscriber records are returned or masked (see [Security model](#security-model)).
 
 ## Gated tools
 
@@ -138,6 +138,44 @@ $env:MCP_HTTP_BEARER_TOKEN = '<a secret of at least 16 characters>'
 Endpoint: `http://127.0.0.1:8000/mcp` with `Authorization: Bearer <token>`. At least one token is required: `MCP_HTTP_BEARER_TOKEN` (one token with all configured scopes) or `MB_HTTP_TOKENS` (several tokens with their own scopes, stored as SHA-256 hashes). A token only sees tools in its scopes, intersected with `MB_SCOPES`. Binds to localhost by default; put a TLS reverse proxy in front for remote access.
 
 `GET /health` answers `200 {"status":"ok"}` without a token. It only tells you the HTTP server is up; it does not call Mikbill and reveals no configuration.
+
+### Connect a client to the HTTP server
+
+**Claude Code** talks to Streamable HTTP directly:
+
+```bash
+claude mcp add --transport http mikbill http://127.0.0.1:8000/mcp \
+  --header "Authorization: Bearer $MCP_HTTP_BEARER_TOKEN"
+```
+
+**Claude Desktop** starts local stdio programs, so a bridge is needed for a remote server. [mcp-remote](https://github.com/geelen/mcp-remote) is one; it needs Node.js. Add this to `claude_desktop_config.json` (`%APPDATA%\Claude\claude_desktop_config.json` on Windows, `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS) and restart Claude Desktop:
+
+```json
+{
+  "mcpServers": {
+    "mikbill": {
+      "command": "npx",
+      "args": [
+        "-y", "mcp-remote", "http://127.0.0.1:8000/mcp",
+        "--allow-http", "--transport", "http-only",
+        "--header", "Authorization:${MIKBILL_AUTH}"
+      ],
+      "env": { "MIKBILL_AUTH": "Bearer <your MCP_HTTP_BEARER_TOKEN>" }
+    }
+  }
+}
+```
+
+Notes:
+
+- The header value goes through `env` and the argument has no space after the colon (`Authorization:${MIKBILL_AUTH}`). Claude Desktop on Windows does not escape spaces in arguments, and `Bearer <token>` contains one.
+- `--transport http-only` is for this server: it speaks Streamable HTTP only, with no SSE fallback.
+- `--allow-http` is needed because the URL is plain `http://`. Use it only for a local address or a trusted private network. With a TLS reverse proxy, use the `https://` URL and drop `--allow-http`.
+- The token is stored in clear text in the config file, so keep that file private. mcp-remote also accepts `--header-file` (one `Name: value` per line) to keep the token out of the process list.
+- The server checks the `Host` header: `127.0.0.1:8000` and `localhost:8000` are accepted. For another name or port (a proxy, a port mapping) set `MCP_ALLOWED_HOSTS` on the server.
+- The tools a client sees depend on the token's scopes and `MB_SCOPES`. Give a Claude Desktop token only the scopes you want the model to use; the gated scopes (`finance`, `account`, `admin`) run without a server-side confirmation, so keep Claude's per-tool approval prompts on for them.
+
+I checked these flags against a copy of the mcp-remote README; the project changes often, so if a flag is rejected, check `npx mcp-remote --help` for your version.
 
 ## Docker
 

@@ -297,7 +297,7 @@ def test_bearer_token_env_authenticates_with_the_server_scopes(image, upstream):
         assert rpc(url, None, "tools/list").status_code == 401
         assert rpc(url, "wrong-token-wrong-token", "tools/list").status_code == 401
         tools = parse(rpc(url, BEARER, "tools/list"))["result"]["tools"]
-        assert len(tools) == 25 + 13 + 13  # read, write and finance, as set in MB_SCOPES
+        assert len(tools) == 25 + 12 + 13  # read, write and finance, as set in MB_SCOPES
         call = parse(rpc(url, BEARER, "tools/call", {"name": "mb_list_ticket_priorities", "arguments": {}}))["result"]
         assert call["isError"] is False
         logs = docker("logs", cid, check=False)
@@ -389,7 +389,7 @@ def test_stdio_initialize_and_list_tools(image, upstream):
             proc.kill()
     assert set(replies) == {1, 2, 3}, replies
     assert replies[1]["result"]["serverInfo"]["name"]
-    assert len(replies[2]["result"]["tools"]) == 25 + 13  # default scopes: read and write
+    assert len(replies[2]["result"]["tools"]) == 25 + 12  # default scopes: read and write
     call = replies[3]["result"]
     assert call["isError"] is False and json.loads(call["content"][0]["text"])["data"] == PRIORITIES
     assert proc.returncode == 0  # closing stdin is a clean shutdown

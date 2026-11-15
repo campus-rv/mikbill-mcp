@@ -164,7 +164,7 @@ async def house(demo):
 
 
 async def new_user(d: Demo, house: dict[str, int], suffix: str) -> int:
-    r = await d.ok(
+    r = await d.gated_ok(  # mb_create_user is in the account scope: a reason, no preview for a single tool
         "mb_create_user", user=d.login(suffix), password=f"MCPTEST_pw_{d.run}{suffix}", fio=d.name("user" + suffix),
         gid=int(os.environ.get("MB_CONTRACT_GID", "1")), sectorid=int(os.environ.get("MB_CONTRACT_SECTOR_ID", "13")),
         app="1", **house)

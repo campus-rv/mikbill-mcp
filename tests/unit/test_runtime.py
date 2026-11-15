@@ -17,7 +17,7 @@ def names(runtime, scopes):
 # ---- scopes and listing ---------------------------------------------------------------------
 
 def test_listing_respects_scopes(runtime):
-    assert len(names(runtime, READ_WRITE)) == 38
+    assert len(names(runtime, READ_WRITE)) == 37
     assert "mb_add_settlement" not in names(runtime, READ_WRITE)  # address objects are admin
     assert "mb_add_house" not in names(runtime, READ_WRITE)
     assert "mb_add_house" in names(runtime, frozenset({"read", "admin"}))
@@ -28,6 +28,8 @@ def test_listing_respects_scopes(runtime):
     assert "mb_delete_user" not in names(runtime, READ_WRITE)  # soft delete is gated account
     assert "mb_delete_user" in names(runtime, frozenset({"read", "account"}))
     assert "mb_bulk_delete_users" not in names(runtime, READ_WRITE)
+    assert "mb_create_user" not in names(runtime, READ_WRITE)  # creating a subscriber is in the account scope
+    assert "mb_create_user" in names(runtime, frozenset({"read", "account"}))
     assert "mb_create_payment" not in names(runtime, frozenset({"read", "write", "account"}))
 
 
@@ -117,15 +119,25 @@ async def test_upstream_error_becomes_an_error_envelope(runtime, fake):
 
 # ---- writes (not gated) ---------------------------------------------------------------------
 
-async def test_write_applies_defaults_and_encodes_values(runtime, fake):
+CREATE_USER = {"user": "u", "password": "p", "fio": "F", "gid": 1, "sectorid": 13, "settlementid": 1,
+               "neighborhoodid": 2, "laneid": 3, "houseid": 4, "app": "1"}
+
+
+async def test_create_user_applies_defaults_and_encodes_values(runtime, fake):
     fake.responses["/extjs/users/createabonent"] = {"success": True, "data": {"useruid": 9, "user": "u"}}
-    args = {"user": "u", "password": "p", "fio": "F", "gid": 1, "sectorid": 13, "settlementid": 1,
-            "neighborhoodid": 2, "laneid": 3, "houseid": 4, "app": "1"}
-    r = await runtime.execute("mb_create_user", args, READ_WRITE)
-    assert r["ok"]
+    r = await runtime.execute("mb_create_user", {**CREATE_USER, "reason": "new customer"}, ALL_SCOPE_SET)
+    assert r["ok"] and "dry_run" not in r  # a single tool: it executes on the first call
     sent = fake.posted("/extjs/users/createabonent")[0]
     assert sent["use_installments"] == "0" and sent["lane_create"] == "0" and sent["phone"] == ""
     assert sent["gid"] == "1"
+
+
+async def test_create_user_is_in_the_account_scope_and_needs_a_reason(runtime, fake):
+    denied = await runtime.execute("mb_create_user", {**CREATE_USER, "reason": "new customer"}, READ_WRITE)
+    assert denied["error"]["code"] == "scope_denied" and "account" in denied["error"]["message"]
+    no_reason = await runtime.execute("mb_create_user", CREATE_USER, ALL_SCOPE_SET)
+    assert no_reason["error"]["code"] == "validation" and "reason" in no_reason["error"]["message"]
+    assert fake.posted("/extjs/users/createabonent") == []
 
 
 async def test_kick_user_is_not_gated(runtime, fake):
@@ -330,8 +342,9 @@ async def test_audit_records_do_not_contain_personal_data(settings, fake, tmp_pa
     rt = Runtime(replace(settings), fake, AuditLog(str(path)))
     await rt.execute("mb_create_user", {"user": "u", "password": "topsecret", "fio": "Real Name", "gid": 1,
                                         "sectorid": 1, "settlementid": 1, "neighborhoodid": 1, "laneid": 1,
-                                        "houseid": 1, "app": "1", "phone": "+380995551234", "email": "a@b.c"},
-                     READ_WRITE, principal="agent1")
+                                        "houseid": 1, "app": "1", "phone": "+380995551234", "email": "a@b.c",
+                                        "reason": "new customer"},
+                     ALL_SCOPE_SET, principal="agent1")
     text = path.read_text(encoding="utf-8")
     assert "topsecret" not in text and "Real Name" not in text and "995551234" not in text and "a@b.c" not in text
     assert "mb_create_user" in text and "agent1" in text

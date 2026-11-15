@@ -19,8 +19,8 @@ A tool is registered only when its scope is granted. Gated tools need a `reason`
 | Scope | Default | Gated | Tools | Contents |
 |---|---|---|---|---|
 | `read` | on | no | 25 | User search with the admin UI's filters; online users; lookups, histories, dictionaries; tickets, ticket notes and logs; ticket category, priority and performer lookups |
-| `write` | on | no, except `mb_delete_tickets` | 13 | Create and edit users; add and delete user devices; sticky notes (create, delete); kick user; tickets (create, update, notes, status, delete tickets and notes) |
-| `account` | off | yes | 11 | Freeze; bulk enable, disable, unfreeze, enable internet; disconnect; soft deletes (single, bulk, disconnected); restore a deleted user; full delete |
+| `write` | on | no, except `mb_delete_tickets` | 12 | Edit users; add and delete user devices; sticky notes (create, delete); kick user; tickets (create, update, notes, status, delete tickets and notes) |
+| `account` | off | yes | 12 | Create a subscriber; freeze; bulk enable, disable, unfreeze, enable internet; disconnect; soft deletes (single, bulk, disconnected); restore a deleted user; full delete |
 | `finance` | off | yes | 13 | Payments (single, bulk); tariff change; flex tariff (reactivate); packet add, edit, delete; personal service set and unset; credit remove (single, bulk); credit issue (bulk); voucher use |
 | `admin` | off | yes, except the read-only `mb_get_system_options` | 33 | System options (read-only); user groups; address objects (settlements, neighborhoods, lanes, houses); infrastructure objects (sectors, switch types, switches, device types, IP pools, real IPs, NAS). Every create, edit and delete |
 | `pii` | off | no | 0 | No tools. With it, identity documents in subscriber records (passport, tax id, birth date) are returned; without it they are masked |
@@ -29,9 +29,11 @@ Total: 95 tools. Blocked and denied tools are registered (see Blocked and denied
 
 **Delete rule:** deletes of users (soft and full), packets, user groups and every admin object are gated. Deletes of sticky notes, user devices and ticket notes are plain `write` tools (no reason, no preview). `mb_delete_tickets` is in `write` too, but a deleted ticket cannot be restored, so it is gated there: a reason, and a preview by default that shows each ticket's state.
 
+**Creating a subscriber:** `mb_create_user` is in `account` (a reason is required, no preview), not in `write`: it opens a billable account with a tariff and a password. It was a `write` tool in 0.1.0.
+
 **Field rule:** an argument that carries a change owned by another scope needs that scope and a reason. On `mb_update_user`: `gid` needs `finance`; `usersgroupid`, `password` and `blocked` need `account`. On `mb_restore_user`: `gid` needs `finance`. Without the scope the call returns `scope_denied` and is audited. The scope `account` was called `account_state` until 0.0.1.
 
-**Admin rule:** all changes to address objects (settlements, neighborhoods, lanes, houses) and infrastructure objects (sectors, switch types, switches, device types, IP pools, real IPs, NAS) need the `admin` scope and are gated: every create, edit and delete. The `write` scope is users, user devices, sticky notes, kick and tickets, with the deletes of the last three.
+**Admin rule:** all changes to address objects (settlements, neighborhoods, lanes, houses) and infrastructure objects (sectors, switch types, switches, device types, IP pools, real IPs, NAS) need the `admin` scope and are gated: every create, edit and delete. The `write` scope is editing users, user devices, sticky notes, kick and tickets, with the deletes of the last three.
 
 **Not in v1:**
 - `consoleMe` and `/extjs/options/consolecommands` (console execution)
@@ -70,11 +72,10 @@ Total: 95 tools. Blocked and denied tools are registered (see Blocked and denied
 | `mb_list_ticket_priorities` | none | `/json/ticketview/getprioritiestypeslist` | 1 high, 2 normal, 3 low |
 | `mb_list_ticket_performers` | none | `/extjs/ticketview/getPerformerList` | stuffid, login, fio |
 
-### write (13; only `mb_delete_tickets` is gated)
+### write (12; only `mb_delete_tickets` is gated)
 
 | Tool | Upstream | URI |
 |---|---|---|
-| `mb_create_user` | createAbonent | `/extjs/users/createabonent` |
 | `mb_update_user` | updateUser | `/extjs/users/updateuser` |
 | `mb_kick_user` | userKickOnline | `/json/users/userkickfl` |
 | `mb_create_sticky_note` | createStickyNotesUser | `/extjs/users/createstickynotesuser` (`uid`, not `useruid`) |
@@ -88,10 +89,11 @@ Total: 95 tools. Blocked and denied tools are registered (see Blocked and denied
 | `mb_delete_tickets` | none | `/extjs/ticketedit/deletetickets` | ticket_ids, sent as ticketid0, ticketid1, ... Gated: reason, preview by default. The preview and the result show the tickets' state |
 | `mb_delete_ticket_note` | none | `/extjs/ticketedit/deletenotes` | noteid |
 
-### account (11, gated)
+### account (12, gated)
 
 | Tool | Upstream | URI | Param / note |
 |---|---|---|---|
+| `mb_create_user` | createAbonent | `/extjs/users/createabonent` | Creates a billable account with a tariff (`gid`) and a password. Needs a sector with free IPs |
 | `mb_freeze_user` | setFreezeUser | `/json/users/dofreezeuserfl` | uid, freeze fields |
 | `mb_bulk_enable_users` | none | `/json/users/enableusersmulti` | `set_users_list` |
 | `mb_bulk_disable_users` | none | `/json/users/disableusersmulti` | `set_users_list` |
@@ -402,7 +404,7 @@ mikbill-mcp/
 
 ## Verification
 
-1. **Unit tests** (`pytest`, `respx`): login and MD5 hashing; one re-login on failure; `success: false` mapping; each error code in the mapping table, using recorded responses from the fixtures; scope registration (counts per scope: 25, 13, 11, 13, 33); a preview makes no upstream POST; bulk tools preview by default and single tools execute; there is no approval token; annotations on every tool; missing `reason` rejected; delete tools use the parameter listed in this spec; `mb_delete_house` never sends `delete_list`; bearer and Origin checks; redaction.
+1. **Unit tests** (`pytest`, `respx`): login and MD5 hashing; one re-login on failure; `success: false` mapping; each error code in the mapping table, using recorded responses from the fixtures; scope registration (counts per scope: 25, 12, 12, 13, 33); a preview makes no upstream POST; bulk tools preview by default and single tools execute; there is no approval token; annotations on every tool; missing `reason` rejected; delete tools use the parameter listed in this spec; `mb_delete_house` never sends `delete_list`; bearer and Origin checks; redaction.
 2. **Contract tests** (opt-in; demo or own test instance only, MCPTEST records only): the verified sequence through the MCP. Soft delete leaves state 4. Blocked tools return their mapped codes.
 3. **MCP inspector:** `npx @modelcontextprotocol/inspector python -m mb_mcp` lists tools per scope.
 4. **Client config check:** add to Claude Code or Claude Desktop with env vars; search a test user by `uid`.

@@ -7,7 +7,7 @@ from mb_mcp.schemas import SCHEMAS
 
 def test_tool_counts_per_scope():
     counts = Counter(ep.scope for ep in ALL)
-    assert counts == {"read": 25, "write": 13, "account": 11, "finance": 13, "admin": 33}
+    assert counts == {"read": 25, "write": 12, "account": 12, "finance": 13, "admin": 33}
     assert len(ALL) == 95
 
 
@@ -109,7 +109,7 @@ def test_address_and_infrastructure_objects_are_gated_admin_for_create_edit_and_
 def test_write_scope_is_users_devices_notes_kick_tickets_and_their_deletes():
     write = {ep.tool for ep in ALL if ep.scope == "write"}
     assert write == {
-        "mb_create_user", "mb_update_user", "mb_kick_user", "mb_create_sticky_note", "mb_add_user_device",
+        "mb_update_user", "mb_kick_user", "mb_create_sticky_note", "mb_add_user_device",
         "mb_create_ticket", "mb_update_ticket", "mb_add_ticket_note", "mb_set_ticket_status",
         "mb_delete_sticky_note", "mb_delete_user_device", "mb_delete_tickets", "mb_delete_ticket_note",
     }
@@ -133,7 +133,13 @@ def test_the_account_scope_replaced_account_state():
     assert {ep.tool for ep in ALL if ep.scope == "account"} == {
         "mb_freeze_user", "mb_bulk_enable_users", "mb_bulk_disable_users", "mb_bulk_unfreeze_users",
         "mb_bulk_enable_internet", "mb_disconnect_user", "mb_bulk_delete_users", "mb_delete_user",
-        "mb_delete_disconnected_user", "mb_delete_user_full", "mb_restore_user"}
+        "mb_delete_disconnected_user", "mb_delete_user_full", "mb_restore_user", "mb_create_user"}
+
+
+def test_creating_a_subscriber_needs_the_account_scope_and_is_gated_but_not_bulk():
+    ep = next(e for e in ALL if e.tool == "mb_create_user")
+    assert ep.scope == "account" and ep.gated
+    assert not SCHEMAS["mb_create_user"].uids  # a single tool: it executes on the first call, no preview by default
 
 
 # ---- MCP tool annotations ----------------------------------------------------------------------------------
