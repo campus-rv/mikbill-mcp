@@ -22,7 +22,7 @@ A tool is registered only when its scope is granted. Gated tools need a `reason`
 | `write` | on | no, except `mb_delete_tickets` | 12 | Edit users; add and delete user devices; sticky notes (create, delete); kick user; tickets (create, update, notes, status, delete tickets and notes) |
 | `account` | off | yes | 12 | Create a subscriber; freeze; bulk enable, disable, unfreeze, enable internet; disconnect; soft deletes (single, bulk, disconnected); restore a deleted user; full delete |
 | `finance` | off | yes | 15 | Payments (single, bulk; ordinary top-up and typed balance operations); tariff change; flex tariff (reactivate); packet add, edit, delete; personal service set and unset; credit set (single), remove (single, bulk) and issue (bulk); voucher use |
-| `admin` | off | yes, except the read-only `mb_get_system_options` | 33 | System options (read-only); user groups; address objects (settlements, neighborhoods, lanes, houses); infrastructure objects (sectors, switch types, switches, device types, IP pools, real IPs, NAS). Every create, edit and delete |
+| `admin` | off | yes (`mb_get_system_options` is read-only and gated) | 33 | System options (read-only); user groups; address objects (settlements, neighborhoods, lanes, houses); infrastructure objects (sectors, switch types, switches, device types, IP pools, real IPs, NAS). Every create, edit and delete |
 | `pii` | off | no | 0 | No tools. With it, identity documents in subscriber records (passport, tax id, birth date) are returned; without it they are masked |
 
 Total: 99 tools. Blocked and denied tools are registered (see Blocked and denied).
@@ -128,13 +128,13 @@ Total: 99 tools. Blocked and denied tools are registered (see Blocked and denied
 | `mb_bulk_issue_credit` | none | `/json/users/creditmulti` | `set_users_list`, `credit` |
 | `mb_use_voucher` | none | `/json/users/usevaucherfl` | uid, code. A valid code adds balance |
 
-### admin (33; all gated except `mb_get_system_options`)
+### admin (33, gated; `mb_get_system_options` is also read-only)
 
 User groups, address objects (settlements, neighborhoods, lanes, houses) and infrastructure objects (sectors, switch types, switches, device types, IP pools, real IPs, NAS): create, edit and delete all need the `admin` scope and a reason.
 
 | Tool | Upstream | URI | Note |
 |---|---|---|---|
-| `mb_get_system_options` | getSystemOptions | `/extjs/users/getsystemoptions` | Read-only, not gated. Server settings and paths, keys not enumerated: values of password, secret, key and token options are masked |
+| `mb_get_system_options` | getSystemOptions | `/extjs/users/getsystemoptions` | Read-only (no preview, `readOnlyHint`) but gated: the admin scope and a reason, which is logged. Server settings and paths, keys not enumerated: values of password, secret, key and token options are masked |
 | `mb_create_user_group` | createUsersGroup | `/json/options/setusersgroup` | usersgroupname, share, description |
 | `mb_update_user_group` | none | `/json/options/setusersgroup` | With `usersgroupid` it updates |
 | `mb_delete_user_group` | none | `/json/options/deleteusersgroup` | **Use `delete_list`**. `usersgroupid` always returns "in use" |
@@ -306,7 +306,7 @@ The harness decides who may call what: it should ask the user before each gated 
 ## Authentication and session
 
 - Configuration from env vars only: `MB_BASE_URL`, `MB_LOGIN`, `MB_PASSWORD` (plaintext; MD5-hashed in memory, as the protocol requires), `MB_SCOPES`, `MB_CA_BUNDLE`, `MB_TIMEOUT_CONNECT=5`, `MB_TIMEOUT_READ=30`, `MB_MAX_BULK=50` (cap on uids per bulk call), `MB_MAX_PAYMENT=10000`, `MB_MAX_PAYMENT_TOTAL=50000`, `MB_AUDIT_FILE` (optional JSON-lines audit log; opened at start-up, and a path that cannot be written stops the server).
-- Secrets can come from files instead: `MB_PASSWORD_FILE`, `MCP_HTTP_BEARER_TOKEN_FILE`, `MB_HTTP_TOKENS_FILE` (set the variable or its `_FILE` form, not both). The password is excluded from the settings' `repr`.
+- Secrets can come from files instead: `MB_PASSWORD_FILE`, `MCP_HTTP_BEARER_TOKEN_FILE` (set the variable or its `_FILE` form, not both). The password is excluded from the settings' `repr`.
 - `MB_BASE_URL` must be `https`: the MD5 sent at login is password-equivalent and every call carries the session cookie. `MB_INSECURE_HTTP=1` accepts plain http and logs a warning. A URL with embedded credentials is refused.
 - One `httpx.AsyncClient` with a cookie jar holds the session. Login runs lazily.
 - The session cookie is sufficient. Calls without it return HTTP 200 with `success: false`, error 1403. The JWT header is not needed by the UI and is not sent.
@@ -316,11 +316,11 @@ The harness decides who may call what: it should ask the user before each gated 
 
 ## Transport
 
-- The transport is chosen with `MCP_TRANSPORT` (`stdio` or `http`; default `stdio`), `--transport`, or `--http`. The command line wins. The settings marked HTTP-only below (`MCP_HTTP_HOST`, `MCP_HTTP_PORT`, `MCP_HTTP_BEARER_TOKEN`, `MB_HTTP_TOKENS`, `MCP_ALLOWED_ORIGINS`, `MCP_ALLOWED_HOSTS`) are read only in http mode and are ignored, not validated, in stdio mode, so one env file or one image serves both.
+- The transport is chosen with `MCP_TRANSPORT` (`stdio` or `http`; default `stdio`), `--transport`, or `--http`. The command line wins. The settings marked HTTP-only below (`MCP_HTTP_HOST`, `MCP_HTTP_PORT`, `MCP_HTTP_BEARER_TOKEN`, `MCP_ALLOWED_ORIGINS`, `MCP_ALLOWED_HOSTS`) are read only in http mode and are ignored, not validated, in stdio mode, so one env file or one image serves both.
 - **stdio** (default): `python -m mb_mcp`, env from the MCP client config.
 - **Streamable HTTP**: `python -m mb_mcp --http`. Host and port come from `MCP_HTTP_HOST` and `MCP_HTTP_PORT` (defaults `127.0.0.1` and `8000`), or from `--host` and `--port`. Binds to localhost by default. Remote access goes through a TLS reverse proxy. The Docker image sets `0.0.0.0` and keeps port `8000`.
 - `GET /health` (and `HEAD`) answers `200 {"status":"ok"}` with no token and no Origin check. It is a liveness check for the HTTP server only: it does not call Mikbill and returns no configuration. The Docker health check uses it. Every other path needs a token.
-- HTTP requires `Authorization: Bearer <token>`. Each token has its own scope list. Config stores SHA-256 hashes. Missing or invalid token: 401. Disallowed `Origin`: 403. After `MB_AUTH_MAX_FAILURES` failed logins (default 10) from one client address within a minute, that address gets 429 with `Retry-After` until the failures leave the window, whatever token it then presents; `0` turns this off. The first failure of a burst and the block are written to the audit log with the address as principal. The limit keys on the address the server sees, which behind a reverse proxy is the proxy. A token without a tool's scope does not see the tool in `tools/list`, and calling it returns a `scope_denied` tool error (not an HTTP 403). Tokens are configured with `MB_HTTP_TOKENS`, a JSON list of `{id, sha256, scopes}`, and/or `MCP_HTTP_BEARER_TOKEN`, one plain token (at least 16 characters; only its SHA-256 is kept) that gets every scope in `MB_SCOPES`, principal id `bearer` in the audit log; `MCP_ALLOWED_ORIGINS` lists allowed origins. The `Host` header must be `<bind host>:<port>`, `127.0.0.1:<port>`, `localhost:<port>` or listed in `MCP_ALLOWED_HOSTS` (otherwise 421), as DNS-rebinding protection. The repository ships a `Dockerfile`: one image for both modes (http on 8000 by default, stdio with `-e MCP_TRANSPORT=stdio`; the health check requests `/health` with the image's Python in http mode; the image has no curl or wget) and a Docker smoke test in `tests/smoke`.
+- HTTP requires `Authorization: Bearer <token>`: the one token in `MCP_HTTP_BEARER_TOKEN` (at least 16 characters; only its SHA-256 is kept). It may use every scope in `MB_SCOPES`; there are no per-token scopes (the earlier `MB_HTTP_TOKENS` list was removed in favour of running a second server with its own `MB_SCOPES` and token). Missing or invalid token: 401. Disallowed `Origin`: 403. After `MB_AUTH_MAX_FAILURES` failed logins (default 10) from one client address within a minute, that address gets 429 with `Retry-After` until the failures leave the window, whatever token it then presents; `0` turns this off. The first failure of a burst and the block are written to the audit log with the address as principal. The limit keys on the address the server sees, which behind a reverse proxy is the proxy. A tool outside `MB_SCOPES` is not in `tools/list`, and calling it returns a `scope_denied` tool error (not an HTTP 403). The `Host` header must be `<bind host>:<port>`, `127.0.0.1:<port>`, `localhost:<port>` or listed in `MCP_ALLOWED_HOSTS` (otherwise 421), as DNS-rebinding protection. The repository ships a `Dockerfile`: one image for both modes (http on 8000 by default, stdio with `-e MCP_TRANSPORT=stdio`; the health check requests `/health` with the image's Python in http mode; the image has no curl or wget) and a Docker smoke test in `tests/smoke`.
 - Validate the `Origin` header and reject unknown origins. The auth middleware lets only `lifespan` and `http` scopes through: a websocket handshake is refused (close 1008) and any other scope type is ignored, so a route added later cannot be reached without a token.
 - HTTP mode shares one Mikbill session across clients. Scope checks run per token before any upstream call.
 

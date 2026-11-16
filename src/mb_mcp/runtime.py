@@ -210,11 +210,12 @@ class Runtime:
                                              "them pointing at nothing. Only on the user's explicit request."}
         if ep.gated:
             bulk = _is_bulk(schema)
-            props["dry_run"] = {"type": "boolean", "default": bulk,
-                                "description": "true returns a preview (targets and their current state, the exact "
-                                               "request, warnings) and sends nothing. Default: "
-                                               + ("true for this bulk tool, so a first call previews; pass false to "
-                                                  "execute." if bulk else "false (the call executes).")}
+            if not ep.read_only:
+                props["dry_run"] = {"type": "boolean", "default": bulk,
+                                    "description": "true returns a preview (targets and their current state, the exact "
+                                                   "request, warnings) and sends nothing. Default: "
+                                                   + ("true for this bulk tool, so a first call previews; pass false to "
+                                                      "execute." if bulk else "false (the call executes).")}
             props["reason"] = {"type": "string", "minLength": 3, "description": "Why this action is needed. Logged."}
             required.append("reason")
         elif schema.field_scopes:
@@ -246,7 +247,8 @@ class Runtime:
         if ep.tool in WARNINGS:
             parts.append(WARNINGS[ep.tool])
         if ep.gated:
-            parts.append(f"Requires the {ep.scope} scope and a reason. The client should ask the user before calling.")
+            parts.append(f"Requires the {ep.scope} scope and a reason, which is logged. "
+                         "The client should ask the user before calling.")
             if _is_bulk(SCHEMAS[ep.tool]):
                 parts.append("Bulk tool: previews by default, pass dry_run false to execute.")
         if ep.status in ("blocked", "denied"):
@@ -270,7 +272,8 @@ class Runtime:
         schema = SCHEMAS[name]
         # Approval is the client's job (the user confirms the call in the harness). The server keeps scopes, a
         # reason for the audit log, limits on ids and amounts, and a preview that is on by default for bulk tools.
-        dry_run_arg = arguments.pop("dry_run", _UNSET) if gated else _UNSET
+        previewable = gated and not ep.read_only  # a read-only tool changes nothing, so there is nothing to preview
+        dry_run_arg = arguments.pop("dry_run", _UNSET) if previewable else _UNSET
         reason = arguments.pop("reason", None) if gated or schema.field_scopes else None
         force_arg = arguments.pop("force", False) if name in CHECKS else False
         try:
@@ -298,7 +301,7 @@ class Runtime:
             except MikbillError as err:
                 return _fail(err)
 
-        if gated and dry_run:
+        if previewable and dry_run:
             try:
                 return _ok(await self._dry_run(ep, schema, args), dry_run=True)
             except MikbillError as err:

@@ -186,7 +186,7 @@ async def test_read_tools(demo):
                  "mb_list_sectors", "mb_list_switches", "mb_list_switch_types", "mb_list_packets", "mb_list_user_groups"):
         data = (await demo.ok(tool))["data"]
         assert isinstance(data, list) and data, f"{tool} returned no rows"
-    assert (await demo.ok("mb_get_system_options"))["data"]
+    assert (await demo.ok("mb_get_system_options", reason=REASON))["data"]  # read-only but gated: a reason is required
 
 
 async def test_user_search_filters_and_online_users(demo):

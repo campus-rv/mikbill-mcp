@@ -40,7 +40,8 @@ class Endpoint:
     status: str = "verified"  # verified | blocked | denied | planned
     note: str = ""            # for maintainers: how the endpoint behaves and what was verified. Never shown to a model.
     desc: str = ""            # the tool description a model reads: what the tool does, in one or two sentences
-    read_only: bool = False   # a tool outside the read scope that changes nothing (mb_get_system_options)
+    read_only: bool = False   # a tool outside the read scope that changes nothing (mb_get_system_options): no preview,
+                              # no intent record, readOnlyHint; it can still be gated (scope and reason)
 
     @property
     def is_read(self) -> bool:
@@ -293,9 +294,12 @@ FINANCE: list[Endpoint] = [
 # ---- admin (33): system options (read-only), and, gated, user groups, address and infrastructure objects ----
 
 ADMIN: list[Endpoint] = [
-    # system options: a read, but admin-only data (server settings and paths), so it is not in the read scope
-    Endpoint("mb_get_system_options", "getSystemOptions", "/extjs/users/getsystemoptions", "admin", read_only=True,
-             note="Admin-only data (server paths and settings).",
+    # system options: a read (it changes nothing, so no preview and readOnlyHint), but the data holds passwords, tokens
+    # and keys, so it is also gated: the admin scope and a reason, which is logged.
+    Endpoint("mb_get_system_options", "getSystemOptions", "/extjs/users/getsystemoptions", "admin", gated=True,
+             read_only=True,
+             note="Server paths and settings, with passwords, tokens and keys that the server masks in the answer. "
+                  "Gated although read-only: a reason is required and logged.",
              desc="Get Mikbill's system options (server settings and paths). Values of password, secret, key and token options are masked."),
     # user groups
     Endpoint("mb_create_user_group", "createUsersGroup", "/json/options/setusersgroup", "admin", gated=True,

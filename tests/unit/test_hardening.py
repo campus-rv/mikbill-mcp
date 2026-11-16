@@ -283,11 +283,41 @@ def test_credentials_are_recognised_by_key_pattern():
 async def test_system_options_mask_secret_values(runtime, fake):
     fake.responses["/extjs/users/getsystemoptions"] = {"success": True, "data": [{
         "ARP_DO_ETHERS": "1", "MYSQL_PASS": "dbpw", "SMS_TOKEN": "t0k", "TURBOSMS_API_KEY": "k", "PATH_LOG": "/var/log"}]}
-    data = (await runtime.execute("mb_get_system_options", {}, frozenset({"read", "admin"})))["data"][0]
+    data = (await runtime.execute("mb_get_system_options", {"reason": "check the SMS settings"},
+                                  frozenset({"read", "admin"})))["data"][0]
     assert data == {"ARP_DO_ETHERS": "1", "MYSQL_PASS": MASK, "SMS_TOKEN": MASK, "TURBOSMS_API_KEY": MASK,
                     "PATH_LOG": "/var/log"}
-    denied = await runtime.execute("mb_get_system_options", {}, READ_WRITE)
+    denied = await runtime.execute("mb_get_system_options", {"reason": "check the SMS settings"}, READ_WRITE)
     assert denied["error"]["code"] == "scope_denied"
+
+
+async def test_system_options_are_read_only_and_gated(runtime, fake, tmp_path):
+    import json
+
+    from mb_mcp.audit import AuditLog
+    from mb_mcp.endpoints import tool_annotations
+    ep = next(e for e in ALL if e.tool == "mb_get_system_options")
+    props = runtime.describe(ep)["inputSchema"]
+    assert props["required"] == ["reason"] and "dry_run" not in props["properties"]  # nothing to preview
+    assert "reason, which is logged" in runtime.describe(ep)["description"]
+    ann = tool_annotations(ep)
+    assert ann["read_only_hint"] is True and "destructive_hint" not in ann
+    scopes = frozenset({"read", "admin"})
+    no_reason = await runtime.execute("mb_get_system_options", {}, scopes)
+    assert no_reason["error"]["code"] == "validation" and "reason" in no_reason["error"]["message"]
+    assert fake.calls == []
+    dry = await runtime.execute("mb_get_system_options", {"reason": "check", "dry_run": True}, scopes)
+    assert dry["error"]["code"] == "validation" and "dry_run" in dry["error"]["message"]
+    assert fake.calls == []
+    # the call is logged with its reason; being read-only it has no "attempt" record
+    path = tmp_path / "audit.log"
+    fake.responses["/extjs/users/getsystemoptions"] = {"success": True, "data": [{"MYSQL_PASS": "dbpw"}]}
+    rt = Runtime(runtime.settings, fake, AuditLog(str(path)))
+    r = await rt.execute("mb_get_system_options", {"reason": "audit the SMS gateway"}, scopes, principal="agent1")
+    assert r["ok"] and "dbpw" not in str(r)
+    events = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    assert [(e["tool"], e["outcome"], e["reason"], e["principal"]) for e in events] == [
+        ("mb_get_system_options", "ok", "audit the SMS gateway", "agent1")]
 
 
 def test_the_audit_log_keeps_ids_and_amounts_and_masks_all_free_text():

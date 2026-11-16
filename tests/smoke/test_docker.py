@@ -31,8 +31,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 PASSWORD = "smoke-secret"
-TOKEN_RO = "smoke-read-token"
-TOKEN_FIN = "smoke-finance-token"
+TOKEN = "smoke-bearer-token-0123456789"   # the one bearer token (MCP_HTTP_BEARER_TOKEN)
 HEADERS = {"Accept": "application/json, text/event-stream", "Content-Type": "application/json"}
 PRIORITIES = [{"prioritytypeid": "1", "prioritytypename": "high"}, {"prioritytypeid": "2", "prioritytypename": "normal"}]
 
@@ -144,7 +143,13 @@ def test_missing_configuration_exits_2_with_a_clear_message(image):
 
 def test_http_needs_a_token_configured(image, upstream):
     r = docker("run", "--rm", *container_env(upstream), image, check=False)
-    assert r.returncode == 2 and "MB_HTTP_TOKENS or MCP_HTTP_BEARER_TOKEN" in r.stderr
+    assert r.returncode == 2 and "MCP_HTTP_BEARER_TOKEN is required" in r.stderr
+
+
+def test_mb_http_tokens_is_gone_so_it_no_longer_counts_as_a_token(image, upstream):
+    old = json.dumps([{"id": "a", "sha256": sha256("old-style-token-0123456789"), "scopes": ["read"]}])
+    r = docker("run", "--rm", *container_env(upstream, MB_HTTP_TOKENS=old), image, check=False)
+    assert r.returncode == 2 and "MCP_HTTP_BEARER_TOKEN is required" in r.stderr
 
 
 def test_image_has_no_curl_or_wget(image):
@@ -186,11 +191,7 @@ def running(image: str, upstream: FakeMikbill, container_port: int = 8000, docke
 
 @pytest.fixture(scope="module")
 def http_container(image, upstream):
-    tokens = json.dumps([
-        {"id": "ro", "sha256": sha256(TOKEN_RO), "scopes": ["read"]},
-        {"id": "fin", "sha256": sha256(TOKEN_FIN), "scopes": ["read", "finance"]},
-    ])
-    with running(image, upstream, MB_HTTP_TOKENS=tokens) as (base, cid):
+    with running(image, upstream, MCP_HTTP_BEARER_TOKEN=TOKEN) as (base, cid):  # MB_SCOPES=read,write,finance
         yield base, cid
 
 
@@ -219,19 +220,18 @@ def test_http_rejects_a_missing_or_wrong_token(http_server):
 
 
 def test_http_rejects_an_unknown_host_header(http_server):
-    assert rpc(http_server, TOKEN_RO, "tools/list", headers={"Host": "evil.example:8000"}).status_code == 421
+    assert rpc(http_server, TOKEN, "tools/list", headers={"Host": "evil.example:8000"}).status_code == 421
 
 
-def test_http_tools_list_follows_the_token_scopes(http_server):
-    ro = parse(rpc(http_server, TOKEN_RO, "tools/list"))["result"]["tools"]
-    fin = parse(rpc(http_server, TOKEN_FIN, "tools/list"))["result"]["tools"]
-    assert len(ro) == 27 and len(fin) == 27 + 15
-    assert "mb_create_payment" in {t["name"] for t in fin} and "mb_create_payment" not in {t["name"] for t in ro}
+def test_http_tools_list_follows_mb_scopes(http_server):
+    tools = {t["name"] for t in parse(rpc(http_server, TOKEN, "tools/list"))["result"]["tools"]}
+    assert len(tools) == 27 + 12 + 15  # read, write and finance, as set in MB_SCOPES
+    assert "mb_create_payment" in tools and "mb_delete_user" not in tools  # account is not in MB_SCOPES
 
 
 def test_http_read_call_goes_through_login_to_the_upstream(http_server, upstream):
     upstream.requests.clear()
-    r = rpc(http_server, TOKEN_RO, "tools/call", {"name": "mb_list_ticket_priorities", "arguments": {}})
+    r = rpc(http_server, TOKEN, "tools/call", {"name": "mb_list_ticket_priorities", "arguments": {}})
     result = parse(r)["result"]
     assert result["isError"] is False
     body = json.loads(result["content"][0]["text"])
@@ -244,8 +244,8 @@ def test_http_read_call_goes_through_login_to_the_upstream(http_server, upstream
 
 def test_http_gated_tool_is_denied_without_its_scope_and_never_reaches_the_upstream(http_server, upstream):
     upstream.requests.clear()
-    args = {"uid": 1, "bughtypeid": 17, "deposit": 1, "prim2": "x", "reason": "smoke test"}
-    result = parse(rpc(http_server, TOKEN_RO, "tools/call", {"name": "mb_create_payment", "arguments": args}))["result"]
+    args = {"uid": 1, "reason": "smoke test"}  # account is not in MB_SCOPES
+    result = parse(rpc(http_server, TOKEN, "tools/call", {"name": "mb_delete_user", "arguments": args}))["result"]
     assert result["isError"] is True
     assert json.loads(result["content"][0]["text"])["error"]["code"] == "scope_denied"
     assert not [p for p, _ in upstream.requests if p != "/extjs/index/auth"]
@@ -254,7 +254,7 @@ def test_http_gated_tool_is_denied_without_its_scope_and_never_reaches_the_upstr
 def test_http_bulk_tool_with_scope_previews_by_default_and_does_not_write(http_server, upstream):
     upstream.requests.clear()
     args = {"uids": [1, 2], "bughtypeid": 17, "deposit": 1, "prim2": "x", "reason": "smoke test"}
-    result = parse(rpc(http_server, TOKEN_FIN, "tools/call", {"name": "mb_bulk_payment", "arguments": args}))["result"]
+    result = parse(rpc(http_server, TOKEN, "tools/call", {"name": "mb_bulk_payment", "arguments": args}))["result"]
     body = json.loads(result["content"][0]["text"])
     assert body["dry_run"] is True and "approval_token" not in body["data"]
     assert body["data"]["summary"]["total_amount"] == 2.0
@@ -262,7 +262,7 @@ def test_http_bulk_tool_with_scope_previews_by_default_and_does_not_write(http_s
 
 
 def test_http_tools_list_carries_annotations(http_server):
-    tools = {t["name"]: t for t in parse(rpc(http_server, TOKEN_FIN, "tools/list"))["result"]["tools"]}
+    tools = {t["name"]: t for t in parse(rpc(http_server, TOKEN, "tools/list"))["result"]["tools"]}
     assert tools["mb_search_users"]["annotations"]["readOnlyHint"] is True
     pay = tools["mb_create_payment"]["annotations"]
     assert pay["readOnlyHint"] is False and pay["destructiveHint"] is True and pay["idempotentHint"] is False
@@ -272,7 +272,7 @@ def test_http_tools_list_carries_annotations(http_server):
 def test_http_does_not_leak_the_password_into_the_logs(http_container):
     # the log of the running container is the one place a secret could end up by accident
     logs = docker("logs", http_container[1], check=False)
-    assert PASSWORD not in logs.stdout + logs.stderr and TOKEN_RO not in logs.stdout + logs.stderr
+    assert PASSWORD not in logs.stdout + logs.stderr and TOKEN not in logs.stdout + logs.stderr
 
 
 def test_health_endpoint_is_open_and_reports_ok(http_container):

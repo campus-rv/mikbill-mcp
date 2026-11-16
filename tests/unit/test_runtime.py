@@ -45,7 +45,7 @@ def test_every_tool_has_a_valid_input_schema(runtime):
         s = d["inputSchema"]
         assert s["type"] == "object" and s["additionalProperties"] is False
         assert set(s["required"]) <= set(s["properties"]), ep.tool
-        assert ("dry_run" in s["properties"]) == ep.gated
+        assert ("dry_run" in s["properties"]) == (ep.gated and not ep.read_only)  # a read-only tool has no preview
         assert ("reason" in s["required"]) == ep.gated
         assert d["description"]
 
@@ -185,7 +185,7 @@ async def test_bulk_tools_preview_by_default_and_execute_with_dry_run_false(runt
     assert fake.posted("/json/users/unfreezeusersmulti") == [{"set_users_list": "10,11"}]
 
 
-@pytest.mark.parametrize("tool", [ep.tool for ep in ALL if ep.gated])
+@pytest.mark.parametrize("tool", [ep.tool for ep in ALL if ep.gated and not ep.read_only])
 def test_only_tools_that_take_a_list_of_targets_preview_by_default(runtime, tool):
     ep = next(e for e in ALL if e.tool == tool)
     prop = runtime.describe(ep)["inputSchema"]["properties"]["dry_run"]

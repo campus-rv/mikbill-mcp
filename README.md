@@ -39,7 +39,7 @@ Environment variables only. Never commit them.
 | `MB_BASE_URL` | Mikbill admin URL, e.g. `https://admin.example.com`. Must be `https` | required |
 | `MB_INSECURE_HTTP` | `1` accepts a plain `http://` `MB_BASE_URL` (the login and the session cookie then travel unencrypted; logged as a warning) | off |
 | `MB_LOGIN`, `MB_PASSWORD` | A dedicated, least-privileged Mikbill admin account | required |
-| `MB_PASSWORD_FILE`, `MCP_HTTP_BEARER_TOKEN_FILE`, `MB_HTTP_TOKENS_FILE` | Read the secret from a file (Docker or Kubernetes secrets) instead of the variable of the same name. Set one or the other, not both | none |
+| `MB_PASSWORD_FILE`, `MCP_HTTP_BEARER_TOKEN_FILE` | Read the secret from a file (Docker or Kubernetes secrets) instead of the variable of the same name. Set one or the other, not both | none |
 | `MB_SCOPES` | Comma list of `read,write,finance,account,admin,pii` | `read,write` |
 | `MB_MAX_BULK` | Maximum uids per bulk call (a whole number from 1 to 1000) | `50` |
 | `MB_MAX_PAYMENT` | Largest amount one call may credit to one account (`deposit`, `credit`). In the currency of the installation: set it to fit yours | `10000` |
@@ -50,8 +50,7 @@ Environment variables only. Never commit them.
 | `MB_TIMEOUT_CONNECT`, `MB_TIMEOUT_READ` | Seconds | `5`, `30` |
 | `MB_AUDIT_FILE` | Path for a JSON-lines audit log of every tool call. The file is opened at start-up: a path that cannot be written stops the server | off (events still go to the log on stderr) |
 | `MCP_TRANSPORT` | `stdio` (a local MCP client starts the server) or `http` (Streamable HTTP). `--transport` or `--http` override it. The Docker image sets `http` | `stdio` |
-| `MCP_HTTP_BEARER_TOKEN` | HTTP only: one plain bearer token (at least 16 characters) that may use every scope in `MB_SCOPES`. Only its SHA-256 is kept in memory | none |
-| `MB_HTTP_TOKENS` | HTTP only: JSON list `[{"id": "agent1", "sha256": "<hex>", "scopes": ["read"]}]`, for tokens with different scopes. `sha256` must be the 64-character hex digest of the token (not the token itself), ids must be unique and not `bearer`, and `scopes` must not be empty; a bad entry stops the server at start-up. Can be combined with `MCP_HTTP_BEARER_TOKEN` | none |
+| `MCP_HTTP_BEARER_TOKEN` | HTTP only, required for HTTP: the one bearer token (at least 16 characters). It may use every scope in `MB_SCOPES`. Only its SHA-256 is kept in memory. For another client with fewer scopes, run another server with its own `MB_SCOPES` and token | none |
 | `MCP_HTTP_HOST`, `MCP_HTTP_PORT` | HTTP only: bind address and port. `--host` and `--port` override them. The Docker image sets `0.0.0.0` | `127.0.0.1`, `8000` |
 | `MCP_ALLOWED_ORIGINS` | HTTP only: comma list of allowed `Origin` values | none |
 | `MCP_ALLOWED_HOSTS` | HTTP only: extra allowed `Host` header values (`host:port`), for proxies and port mappings | none |
@@ -96,7 +95,7 @@ Three more rules apply on top of the scope of a tool:
 
 What the server enforces, whatever the client or the model does:
 
-- **Scopes**, per token over HTTP. Over HTTP a request without resolved scopes gets none.
+- **Scopes**, from `MB_SCOPES`. Over HTTP the one bearer token gets all of them, and a request without resolved scopes gets none.
 - **Typed arguments.** Ids are whole numbers, amounts are plain decimals, switches are 0 or 1. Mikbill parses leniently (`"12abc"` acts on 12), so nothing that names a record or an amount is passed on unchecked.
 - **Money limits**: `MB_MAX_PAYMENT` per account and `MB_MAX_PAYMENT_TOTAL` per bulk call. Amounts must be more than 0.
 - **An audit record before the request.** A call that changes data is written to the audit log as `attempt` before it is sent, and again with its outcome (`ok` or the error code), linked by `id`. If the attempt cannot be written, the call is not sent (`audit_unavailable`). Reads are recorded once, with the row count. Arguments are logged through an allowlist: ids, amounts, switches and dates are kept, every free-text value (names, notes, logins, voucher codes) is masked.
@@ -135,7 +134,7 @@ $env:MCP_HTTP_BEARER_TOKEN = '<a secret of at least 16 characters>'
 .\.venv\Scripts\python -m mb_mcp --http          # or MCP_TRANSPORT=http; host and port from MCP_HTTP_HOST / MCP_HTTP_PORT, or --host / --port
 ```
 
-Endpoint: `http://127.0.0.1:8000/mcp` with `Authorization: Bearer <token>`. At least one token is required: `MCP_HTTP_BEARER_TOKEN` (one token with all configured scopes) or `MB_HTTP_TOKENS` (several tokens with their own scopes, stored as SHA-256 hashes). A token only sees tools in its scopes, intersected with `MB_SCOPES`. Binds to localhost by default; put a TLS reverse proxy in front for remote access.
+Endpoint: `http://127.0.0.1:8000/mcp` with `Authorization: Bearer <token>`. `MCP_HTTP_BEARER_TOKEN` is required: the one token, which may use every scope in `MB_SCOPES`. To give another client fewer scopes, run a second server with its own `MB_SCOPES` and token. Binds to localhost by default; put a TLS reverse proxy in front for remote access.
 
 `GET /health` answers `200 {"status":"ok"}` without a token. It only tells you the HTTP server is up; it does not call Mikbill and reveals no configuration.
 
@@ -173,7 +172,7 @@ Notes:
 - `--allow-http` is needed because the URL is plain `http://`. Use it only for a local address or a trusted private network. With a TLS reverse proxy, use the `https://` URL and drop `--allow-http`.
 - The token is stored in clear text in the config file, so keep that file private. mcp-remote also accepts `--header-file` (one `Name: value` per line) to keep the token out of the process list.
 - The server checks the `Host` header: `127.0.0.1:8000` and `localhost:8000` are accepted. For another name or port (a proxy, a port mapping) set `MCP_ALLOWED_HOSTS` on the server.
-- The tools a client sees depend on the token's scopes and `MB_SCOPES`. Give a Claude Desktop token only the scopes you want the model to use; the gated scopes (`finance`, `account`, `admin`) run without a server-side confirmation, so keep Claude's per-tool approval prompts on for them.
+- The tools a client sees are the ones in `MB_SCOPES`. Run the server for Claude Desktop with only the scopes you want the model to use; the gated scopes (`finance`, `account`, `admin`) run without a server-side confirmation, so keep Claude's per-tool approval prompts on for them.
 
 I checked these flags against a copy of the mcp-remote README; the project changes often, so if a flag is rejected, check `npx mcp-remote --help` for your version.
 
@@ -224,13 +223,6 @@ Other examples:
 ```bash
 # More scopes for the one bearer token (gated scopes need a reason on every call; the client asks the user to approve)
 docker run --rm -p 127.0.0.1:8000:8000 --env-file .env -e MB_SCOPES=read,write,finance ghcr.io/campus-rv/mikbill-mcp:latest
-
-# Different tokens with different scopes: MB_HTTP_TOKENS holds the SHA-256 of each token, not the token
-printf %s "$READER_TOKEN" | sha256sum        # put the hex digest into the JSON below
-docker run --rm -p 127.0.0.1:8000:8000 --env-file .env \
-  -e MB_SCOPES=read,write,finance \
-  -e 'MB_HTTP_TOKENS=[{"id":"reader","sha256":"<hex>","scopes":["read"]},{"id":"billing","sha256":"<hex>","scopes":["read","finance"]}]' \
-  ghcr.io/campus-rv/mikbill-mcp:latest
 
 # Another host port: the Host header must be allowed
 docker run --rm -p 127.0.0.1:9000:8000 --env-file .env -e MCP_ALLOWED_HOSTS=127.0.0.1:9000 ghcr.io/campus-rv/mikbill-mcp:latest
@@ -325,5 +317,5 @@ Set `MB_SMOKE_IMAGE=<name>` to test an image you already built. CI runs ruff, my
 
 ## Status
 
-- Implemented: client, error mapping, gating, redaction, audit, runtime, stdio and HTTP servers, Docker image. 524 unit tests, including an in-memory MCP session, a real HTTP round trip and one regression section per finding of the 2026-11 security review (`tests/unit/test_hardening.py`). 22 Docker smoke tests pass.- The live contract suite (`tests/contract`) passes against the public Mikbill demo. All 10 tests passed on the last run, including the tests for ticket lookups, user history, devices and restore. Some paths are only partly covered: `mb_use_voucher` is tested with a wrong code only, and `mb_set_personal_service` only on a service without a portal.
+- Implemented: client, error mapping, gating, redaction, audit, runtime, stdio and HTTP servers, Docker image. 503 unit tests, including an in-memory MCP session, a real HTTP round trip and one regression section per finding of the 2026-11 security review (`tests/unit/test_hardening.py`). 22 Docker smoke tests pass.- The live contract suite (`tests/contract`) passes against the public Mikbill demo. All 10 tests passed on the last run, including the tests for ticket lookups, user history, devices and restore. Some paths are only partly covered: `mb_use_voucher` is tested with a wrong code only, and `mb_set_personal_service` only on a service without a portal.
 - Open items are listed in SPEC.md ("Blocked and denied", "Discovered endpoints").

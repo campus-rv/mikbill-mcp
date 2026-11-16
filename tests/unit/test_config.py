@@ -1,6 +1,6 @@
 import pytest
 
-from mb_mcp.config import ConfigError, Settings, parse_scopes, parse_tokens
+from mb_mcp.config import ConfigError, Settings, parse_scopes
 from mb_mcp.http_auth import hash_token
 
 
@@ -79,12 +79,6 @@ def test_bearer_token_env_adds_a_token_with_the_server_scopes_and_keeps_only_its
     assert t.sha256 == hash_token(secret) and secret not in repr(s)
 
 
-def test_bearer_token_is_added_to_the_mb_http_tokens_list():
-    raw = '[{"id": "a", "sha256": "%s", "scopes": ["read"]}]' % hash_token("tok")
-    s = Settings.from_env(env(MB_HTTP_TOKENS=raw, MCP_HTTP_BEARER_TOKEN="a-long-enough-secret-token"), **HTTP)
-    assert [t.id for t in s.http_tokens] == ["a", "bearer"]
-
-
 def test_a_short_bearer_token_is_refused_in_http_mode():
     with pytest.raises(ConfigError, match="at least 16"):
         Settings.from_env(env(MCP_HTTP_BEARER_TOKEN="short"), **HTTP)
@@ -96,24 +90,11 @@ def test_a_blank_bearer_token_is_ignored():
 
 def test_http_only_settings_are_ignored_and_not_validated_in_stdio_mode():
     s = Settings.from_env(env(
-        MCP_HTTP_BEARER_TOKEN="short", MB_HTTP_TOKENS="not json", MCP_HTTP_PORT="nope",
+        MCP_HTTP_BEARER_TOKEN="short", MCP_HTTP_PORT="nope",
         MCP_HTTP_HOST="0.0.0.0", MCP_ALLOWED_HOSTS="a.example", MCP_ALLOWED_ORIGINS="https://a.test"))
     assert s.transport == "stdio"
     assert s.http_tokens == () and s.allowed_hosts == frozenset() and s.allowed_origins == frozenset()
     assert (s.http_host, s.http_port) == ("127.0.0.1", 8000)
-
-
-def test_tokens_parse():
-    raw = '[{"id": "a", "sha256": "%s", "scopes": ["read"]}]' % hash_token("tok")
-    (t,) = parse_tokens(raw)
-    assert t.id == "a" and t.scopes == frozenset({"read"})
-
-
-def test_tokens_invalid():
-    with pytest.raises(ConfigError):
-        parse_tokens("not json")
-    with pytest.raises(ConfigError):
-        parse_tokens('[{"id": "a"}]')
 
 
 # ---- L2: MB_MAX_BULK has bounds -------------------------------------------------------------------------------
@@ -134,57 +115,17 @@ def test_mb_max_bulk_accepts_values_in_range(value, expected):
     assert Settings.from_env(env(MB_MAX_BULK=value)).max_bulk == expected
 
 
-# ---- L3: MB_HTTP_TOKENS entries are checked ---------------------------------------------------------------------
+# ---- one bearer token: MB_HTTP_TOKENS (several tokens with their own scopes) is gone ------------------------------
 
-import json as _json  # noqa: E402
-
-GOOD = hash_token("a-long-enough-secret-token")
-
-
-def tokens(*entries):
-    return _json.dumps(list(entries))
-
-
-def entry(**kw):
-    return {"id": "agent", "sha256": GOOD, "scopes": ["read"], **kw}
-
-
-def test_a_valid_entry_is_accepted_and_the_digest_is_lower_cased():
-    (t,) = parse_tokens(tokens(entry(sha256=GOOD.upper(), id=" agent ")))
-    assert t.sha256 == GOOD and t.id == "agent"
-
-
-@pytest.mark.parametrize("raw,match", [
-    ('{"id": "a"}', "JSON list"),
-    ('"text"', "JSON list"),
-    ("[1, 2]", "JSON list"),
-    (tokens(entry(sha256="a-long-enough-secret-token")), "64-character SHA-256 hex digest"),   # the token pasted in
-    (tokens(entry(sha256=GOOD[:-1])), "64-character"),
-    (tokens(entry(sha256=GOOD + "0")), "64-character"),
-    (tokens(entry(sha256="z" * 64)), "64-character"),
-    (tokens(entry(sha256="")), "64-character"),
-    (tokens(entry(sha256=5)), "needs id, sha256, scopes"),
-    (tokens(entry(scopes=[])), "non-empty list"),
-    (tokens(entry(scopes="read")), "needs id, sha256, scopes"),
-    (tokens(entry(scopes=[1])), "non-empty list"),
-    (tokens(entry(scopes=["bogus"])), "unknown scopes"),
-    (tokens(entry(id="")), "needs id, sha256, scopes"),
-    (tokens(entry(id="  ")), "needs id, sha256, scopes"),
-    (tokens(entry(id=7)), "needs id, sha256, scopes"),
-    (tokens(entry(), entry()), "twice"),
-    (tokens(entry(id="bearer")), "reserved"),
-])
-def test_bad_token_entries_are_refused_at_start_up(raw, match):
-    with pytest.raises(ConfigError, match=match):
-        parse_tokens(raw)
-
-
-def test_two_tokens_with_different_ids_are_fine():
-    parsed = parse_tokens(tokens(entry(id="reader"), entry(id="billing", scopes=["read", "finance"])))
-    assert [t.id for t in parsed] == ["reader", "billing"]
-
-
-def test_the_bearer_token_env_does_not_clash_with_the_list():
-    raw = tokens(entry(id="reader"))
+def test_mb_http_tokens_is_no_longer_read():
+    raw = '[{"id": "a", "sha256": "%s", "scopes": ["read"]}]' % hash_token("tok")
+    s = Settings.from_env(env(MB_HTTP_TOKENS=raw), **HTTP)
+    assert s.http_tokens == ()  # nothing configured: serving HTTP then fails with "MCP_HTTP_BEARER_TOKEN is required"
     s = Settings.from_env(env(MB_HTTP_TOKENS=raw, MCP_HTTP_BEARER_TOKEN="a-long-enough-secret-token"), **HTTP)
-    assert [t.id for t in s.http_tokens] == ["reader", "bearer"]
+    assert [t.id for t in s.http_tokens] == ["bearer"]
+
+
+def test_the_one_token_gets_every_scope_in_mb_scopes():
+    s = Settings.from_env(env(MCP_HTTP_BEARER_TOKEN="a-long-enough-secret-token", MB_SCOPES="read,write,finance"), **HTTP)
+    (t,) = s.http_tokens
+    assert t.scopes == frozenset({"read", "write", "finance"})

@@ -83,7 +83,7 @@ def build_http_app(runtime: Runtime, host: str, port: int) -> Any:
 
     settings = runtime.settings
     if not settings.http_tokens:
-        raise ConfigError("MB_HTTP_TOKENS or MCP_HTTP_BEARER_TOKEN must define at least one token to serve HTTP")
+        raise ConfigError("MCP_HTTP_BEARER_TOKEN is required to serve HTTP")
     server = build_server(runtime, http=True)
     security = TransportSecuritySettings(
         enable_dns_rebinding_protection=True,

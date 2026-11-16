@@ -31,7 +31,7 @@ GATED_IN_WRITE = {"mb_delete_tickets"}
 def test_gated_exactly_for_gated_scopes():
     for ep in ALL:
         if ep.tool in READ_ONLY_OUTSIDE_READ:
-            assert ep.scope == "admin" and ep.read_only and not ep.gated
+            assert ep.scope == "admin" and ep.read_only and ep.gated  # read-only and gated
         elif ep.tool in GATED_IN_WRITE:
             assert ep.scope == "write" and ep.gated
         else:
@@ -42,7 +42,7 @@ def test_gated_exactly_for_gated_scopes():
 def test_system_options_are_not_in_the_read_scope():
     """Server settings and paths with keys nobody enumerated: not for every read token."""
     ep = next(e for e in ALL if e.tool == "mb_get_system_options")
-    assert ep.scope == "admin" and ep.is_read
+    assert ep.scope == "admin" and ep.is_read and ep.gated
 
 
 def test_every_tool_has_a_description_for_the_model_without_maintainer_notes():

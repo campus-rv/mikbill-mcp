@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 import math
 import os
-import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -31,9 +29,6 @@ DEFAULT_HTTP_PORT = 8000
 MIN_BEARER_TOKEN_LENGTH = 16
 BEARER_PRINCIPAL = "bearer"  # the principal id of MCP_HTTP_BEARER_TOKEN
 MAX_BULK_LIMIT = 1000   # MB_MAX_BULK: most subscribers or tickets in one bulk call
-
-
-_SHA256_HEX = re.compile(r"[0-9a-f]{64}")
 
 
 class ConfigError(ValueError):
@@ -73,7 +68,7 @@ class Settings:
     def from_env(cls, env: Mapping[str, str] | None = None, *, transport: str | None = None) -> Settings:
         """Read the settings. `transport` (the command line) overrides MCP_TRANSPORT; the default is stdio.
 
-        The HTTP settings (MCP_HTTP_HOST, MCP_HTTP_PORT, MCP_HTTP_BEARER_TOKEN, MB_HTTP_TOKENS,
+        The HTTP settings (MCP_HTTP_HOST, MCP_HTTP_PORT, MCP_HTTP_BEARER_TOKEN,
         MCP_ALLOWED_ORIGINS, MCP_ALLOWED_HOSTS) are read only when the transport is http. In stdio mode
         they are ignored and not validated, so one env file can serve both modes.
         """
@@ -101,10 +96,8 @@ class Settings:
         scopes = parse_scopes(e.get("MB_SCOPES", ",".join(DEFAULT_SCOPES)))
         http: dict[str, object] = {}
         if mode == "http":
-            tokens = parse_tokens(_secret(e, "MB_HTTP_TOKENS"))
             bearer = _secret(e, "MCP_HTTP_BEARER_TOKEN")
-            if bearer:
-                tokens = (*tokens, bearer_token(bearer, scopes))
+            tokens = (bearer_token(bearer, scopes),) if bearer else ()
             http = {
                 "http_tokens": tokens,
                 "allowed_origins": _csv(e.get("MCP_ALLOWED_ORIGINS", "")),
@@ -206,10 +199,10 @@ def _port(raw: str) -> int:
 
 
 def bearer_token(token: str, scopes: frozenset[str]) -> HttpToken:
-    """MCP_HTTP_BEARER_TOKEN (HTTP transport only): one plain bearer token that gets every scope the server is configured with.
+    """MCP_HTTP_BEARER_TOKEN (HTTP transport only): the one bearer token. It gets every scope in MB_SCOPES.
 
-    Only its SHA-256 is kept in memory, like the tokens from MB_HTTP_TOKENS. The scopes it may use are
-    still limited by MB_SCOPES. Use MB_HTTP_TOKENS when different agents need different scopes.
+    Only its SHA-256 is kept in memory. To give another client fewer scopes, run another server with a different
+    MB_SCOPES and token.
     """
     if len(token) < MIN_BEARER_TOKEN_LENGTH:
         raise ConfigError(f"MCP_HTTP_BEARER_TOKEN must be at least {MIN_BEARER_TOKEN_LENGTH} characters")
@@ -223,41 +216,3 @@ def parse_scopes(raw: str) -> frozenset[str]:
     if unknown:
         raise ConfigError(f"unknown scopes: {', '.join(sorted(unknown))}")
     return scopes
-
-
-def parse_tokens(raw: str) -> tuple[HttpToken, ...]:
-    """MB_HTTP_TOKENS is a JSON list: [{"id": "agent1", "sha256": "<hex>", "scopes": ["read"]}].
-
-    Each entry is checked, because a mistake here fails silently at run time: a plain token pasted into `sha256`
-    never matches, and a token with no scopes can do nothing.
-    """
-    if not raw.strip():
-        return ()
-    try:
-        items = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise ConfigError("MB_HTTP_TOKENS is not valid JSON") from exc
-    if not isinstance(items, list) or not all(isinstance(item, dict) for item in items):
-        raise ConfigError('MB_HTTP_TOKENS must be a JSON list of {"id", "sha256", "scopes"} objects')
-    tokens: list[HttpToken] = []
-    seen: set[str] = set()
-    for item in items:
-        token_id = item.get("id")
-        digest = item.get("sha256")
-        scopes = item.get("scopes")
-        if not isinstance(token_id, str) or not token_id.strip() or not isinstance(digest, str)                 or not isinstance(scopes, list):
-            raise ConfigError("each MB_HTTP_TOKENS entry needs id, sha256, scopes")
-        token_id = token_id.strip()
-        if token_id == BEARER_PRINCIPAL:
-            raise ConfigError(f"MB_HTTP_TOKENS id {BEARER_PRINCIPAL!r} is reserved for MCP_HTTP_BEARER_TOKEN")
-        if token_id in seen:
-            raise ConfigError(f"MB_HTTP_TOKENS has the id {token_id!r} twice")
-        seen.add(token_id)
-        digest = digest.strip().lower()
-        if not _SHA256_HEX.fullmatch(digest):
-            raise ConfigError(f"MB_HTTP_TOKENS {token_id!r}: sha256 must be the 64-character SHA-256 hex digest of the "
-                              "token, not the token itself")
-        if not scopes or not all(isinstance(scope, str) for scope in scopes):
-            raise ConfigError(f"MB_HTTP_TOKENS {token_id!r}: scopes must be a non-empty list of scope names")
-        tokens.append(HttpToken(id=token_id, sha256=digest, scopes=parse_scopes(",".join(scopes))))
-    return tuple(tokens)
